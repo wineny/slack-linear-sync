@@ -1,0 +1,22 @@
+name = "slack-linear-sync"
+main = "src/index.ts"
+compatibility_date = "2024-12-18"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+TARGET_CHANNEL_NAME = "00-ai개발-질문"
+LINEAR_TEAM_ID = "e108ae14-a354-4c09-86ac-6c1186bc6132"
+LINEAR_DEFAULT_STATE_ID = "6dc4154e-3a35-43d2-ac44-e3d66df85c9b"
+
+# KV namespace for deduplication
+# Run: wrangler kv:namespace create "PROCESSED_MESSAGES"
+# Then add the id below
+# [[kv_namespaces]]
+# binding = "PROCESSED_MESSAGES"
+# id = "<your-kv-namespace-id>"
+
+# Secrets (set via wrangler secret put):
+# - SLACK_BOT_TOKEN
+# - SLACK_SIGNING_SECRET
+# - LINEAR_API_TOKEN
+# - ANTHROPIC_API_KEY
