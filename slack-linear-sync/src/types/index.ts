@@ -4,6 +4,8 @@ export interface Env {
   TARGET_CHANNEL_NAME: string;
   LINEAR_TEAM_ID: string;
   LINEAR_DEFAULT_STATE_ID: string;
+  LINEAR_DONE_STATE_ID: string;
+  DONE_EMOJI: string; // e.g., "white_check_mark"
 
   // Secrets
   SLACK_BOT_TOKEN: string;
@@ -11,8 +13,9 @@ export interface Env {
   LINEAR_API_TOKEN: string;
   ANTHROPIC_API_KEY: string;
 
-  // KV namespace for deduplication
+  // KV namespace for deduplication and issue mapping
   PROCESSED_MESSAGES?: KVNamespace;
+  ISSUE_MAPPINGS?: KVNamespace;
 }
 
 // Slack Event API types
@@ -22,9 +25,23 @@ export interface SlackEventPayload {
   api_app_id: string;
   type: 'url_verification' | 'event_callback';
   challenge?: string;
-  event?: SlackMessageEvent;
+  event?: SlackMessageEvent | SlackReactionEvent;
   event_id?: string;
   event_time?: number;
+}
+
+// Slack Reaction event
+export interface SlackReactionEvent {
+  type: 'reaction_added' | 'reaction_removed';
+  user: string;
+  reaction: string; // emoji name without colons
+  item: {
+    type: 'message';
+    channel: string;
+    ts: string;
+  };
+  item_user: string;
+  event_ts: string;
 }
 
 export interface SlackMessageEvent {

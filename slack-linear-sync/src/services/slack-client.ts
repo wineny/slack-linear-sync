@@ -85,4 +85,27 @@ export class SlackClient {
       message_ts: messageTs,
     });
   }
+
+  /**
+   * Get conversation replies (thread messages)
+   */
+  async getConversationReplies(
+    channel: string,
+    ts: string
+  ): Promise<{
+    ok: boolean;
+    messages?: Array<{
+      ts: string;
+      thread_ts?: string;
+      text: string;
+      user: string;
+    }>;
+    error?: string;
+  }> {
+    return this.request('conversations.replies', {
+      channel,
+      ts,
+      limit: '1',
+    });
+  }
 }

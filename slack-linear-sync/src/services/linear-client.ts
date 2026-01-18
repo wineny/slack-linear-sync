@@ -126,4 +126,51 @@ export class LinearClient {
       };
     }
   }
+
+  /**
+   * Update issue state (e.g., mark as Done)
+   */
+  async updateIssueState(issueId: string, stateId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const result = await this.query<{
+        issueUpdate: {
+          success: boolean;
+          issue?: {
+            id: string;
+            identifier: string;
+            state: { name: string };
+          };
+        };
+      }>(
+        `
+        mutation UpdateIssue($id: String!, $input: IssueUpdateInput!) {
+          issueUpdate(id: $id, input: $input) {
+            success
+            issue {
+              id
+              identifier
+              state { name }
+            }
+          }
+        }
+      `,
+        {
+          id: issueId,
+          input: { stateId },
+        }
+      );
+
+      if (result.issueUpdate.success) {
+        console.log(`Issue ${result.issueUpdate.issue?.identifier} marked as ${result.issueUpdate.issue?.state.name}`);
+        return { success: true };
+      }
+
+      return { success: false, error: 'Issue update failed' };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
 }

@@ -2,11 +2,12 @@
  * Slack Event API handler
  */
 
-import type { Env, SlackEventPayload, SlackMessageEvent } from '../types/index.js';
+import type { Env, SlackEventPayload, SlackMessageEvent, SlackReactionEvent } from '../types/index.js';
 import { SlackClient } from '../services/slack-client.js';
 import { LinearClient } from '../services/linear-client.js';
 import { AIAnalyzer } from '../services/ai-analyzer.js';
 import { mapSlackUserToLinear } from '../utils/user-mapper.js';
+import { handleSlackReaction } from './slack-reactions.js';
 
 // In-memory deduplication (for when KV is not available)
 const processedMessages = new Set<string>();
@@ -40,23 +41,31 @@ export async function handleSlackEvent(
 
   const event = payload.event;
 
+  // Handle reaction events
+  if (event.type === 'reaction_added' || event.type === 'reaction_removed') {
+    return handleSlackReaction(event as SlackReactionEvent, env);
+  }
+
+  // Cast to message event for type safety
+  const messageEvent = event as SlackMessageEvent;
+
   // Skip non-message events and subtypes (edits, deletes, bot messages, etc.)
-  if (event.type !== 'message' || event.subtype) {
-    console.log(`Skipping event: type=${event.type}, subtype=${event.subtype}`);
+  if (messageEvent.type !== 'message' || messageEvent.subtype) {
+    console.log(`Skipping event: type=${messageEvent.type}, subtype=${messageEvent.subtype}`);
     return new Response('OK');
   }
 
   // Skip thread replies (only process top-level messages)
-  if (event.thread_ts) {
+  if (messageEvent.thread_ts) {
     console.log('Skipping thread reply');
     return new Response('OK');
   }
 
   // Check if message is from target channel
   const slackClient = new SlackClient(env.SLACK_BOT_TOKEN);
-  console.log(`Received message in channel: ${event.channel}, user: ${event.user}`);
+  console.log(`Received message in channel: ${messageEvent.channel}, user: ${messageEvent.user}`);
 
-  const channelInfo = await slackClient.getChannelInfo(event.channel);
+  const channelInfo = await slackClient.getChannelInfo(messageEvent.channel);
   console.log(`Channel info response:`, JSON.stringify(channelInfo));
 
   if (!channelInfo.ok) {
@@ -73,7 +82,7 @@ export async function handleSlackEvent(
   console.log(`Processing message from target channel (or unknown channel for debugging)`);
 
   // Check for duplicate processing
-  const messageKey = `msg:${event.channel}:${event.ts}`;
+  const messageKey = `msg:${messageEvent.channel}:${messageEvent.ts}`;
 
   // In-memory deduplication (works without KV)
   if (isDuplicate(messageKey)) {
@@ -93,7 +102,7 @@ export async function handleSlackEvent(
 
   try {
     // Process the message
-    await processQuestion(event, env, slackClient);
+    await processQuestion(messageEvent, env, slackClient);
 
     // Mark as completed
     if (env.PROCESSED_MESSAGES) {
@@ -191,6 +200,16 @@ async function processQuestion(
   }
 
   console.log(`Created Linear issue: ${issueResult.issueIdentifier}`);
+
+  // Store mapping: Slack message ts -> Linear issue ID (for reaction-based Done)
+  if (env.ISSUE_MAPPINGS && issueResult.issueId) {
+    const mappingKey = `issue:${event.channel}:${event.ts}`;
+    await env.ISSUE_MAPPINGS.put(mappingKey, JSON.stringify({
+      issueId: issueResult.issueId,
+      issueIdentifier: issueResult.issueIdentifier,
+    }), { expirationTtl: 30 * 24 * 60 * 60 }); // 30 days
+    console.log(`Stored issue mapping: ${mappingKey} -> ${issueResult.issueId}`);
+  }
 
   // Post reply in Slack thread with issue link
   const replyText = `:white_check_mark: Linear 이슈가 생성되었습니다!\n<${issueResult.issueUrl}|${issueResult.issueIdentifier}>`;
