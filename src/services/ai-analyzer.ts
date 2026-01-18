@@ -1,5 +1,5 @@
 /**
- * AI analyzer using Anthropic Claude Haiku for extracting issue title/description
+ * AI analyzer using Anthropic Claude Haiku 4.5 for extracting issue title/description
  */
 
 import Anthropic from '@anthropic-ai/sdk';

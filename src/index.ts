@@ -49,7 +49,7 @@ app.post('/slack/events', async (c) => {
   }
 
   // Handle the event
-  return handleSlackEvent(payload, env);
+  return handleSlackEvent(payload, env, c.executionCtx);
 });
 
 // Debug endpoint (remove in production)

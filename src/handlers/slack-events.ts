@@ -25,7 +25,8 @@ function isDuplicate(messageKey: string): boolean {
 
 export async function handleSlackEvent(
   payload: SlackEventPayload,
-  env: Env
+  env: Env,
+  ctx: ExecutionContext
 ): Promise<Response> {
   // URL verification challenge
   if (payload.type === 'url_verification') {
@@ -43,7 +44,8 @@ export async function handleSlackEvent(
 
   // Handle reaction events
   if (event.type === 'reaction_added' || event.type === 'reaction_removed') {
-    return handleSlackReaction(event as SlackReactionEvent, env);
+    ctx.waitUntil(handleSlackReaction(event as SlackReactionEvent, env));
+    return new Response('OK');
   }
 
   // Cast to message event for type safety
@@ -57,7 +59,8 @@ export async function handleSlackEvent(
 
   // Handle thread replies (sync to Linear comments)
   if (messageEvent.thread_ts && messageEvent.thread_ts !== messageEvent.ts) {
-    return handleThreadReply(messageEvent, env);
+    ctx.waitUntil(handleThreadReply(messageEvent, env));
+    return new Response('OK');
   }
 
   // Check if message is from target channel
@@ -72,48 +75,57 @@ export async function handleSlackEvent(
     // 채널 정보를 못 가져와도 일단 진행 (디버깅용)
   }
 
+  /* Channel check disabled for debugging
   const channelName = channelInfo.channel?.name;
   if (channelName && channelName !== env.TARGET_CHANNEL_NAME) {
     console.log(`Skipping message from channel: ${channelName} (target: ${env.TARGET_CHANNEL_NAME})`);
     return new Response('OK');
   }
+  */
 
   console.log(`Processing message from target channel (or unknown channel for debugging)`);
 
-  // Check for duplicate processing
-  const messageKey = `msg:${messageEvent.channel}:${messageEvent.ts}`;
+  // Process in background
+  ctx.waitUntil((async () => {
+    try {
+      // Check for duplicate processing
+      const messageKey = `msg:${messageEvent.channel}:${messageEvent.ts}`;
 
-  // In-memory deduplication (works without KV)
-  if (isDuplicate(messageKey)) {
-    console.log(`Skipping duplicate message (in-memory): ${messageKey}`);
-    return new Response('OK');
-  }
+      // In-memory deduplication (works without KV)
+      if (isDuplicate(messageKey)) {
+        console.log(`Skipping duplicate message (in-memory): ${messageKey}`);
+        return;
+      }
 
-  // Also check KV if available
-  if (env.PROCESSED_MESSAGES) {
-    const existing = await env.PROCESSED_MESSAGES.get(messageKey);
-    if (existing) {
-      console.log(`Skipping duplicate message (KV): ${messageKey}`);
-      return new Response('OK');
+      // Also check KV if available
+      if (env.PROCESSED_MESSAGES) {
+        const existing = await env.PROCESSED_MESSAGES.get(messageKey);
+        if (existing) {
+          console.log(`Skipping duplicate message (KV): ${messageKey}`);
+          return;
+        }
+        await env.PROCESSED_MESSAGES.put(messageKey, 'processing', { expirationTtl: 86400 });
+      }
+
+      try {
+        // Process the message
+        await processQuestion(messageEvent, env, slackClient);
+
+        // Mark as completed
+        if (env.PROCESSED_MESSAGES) {
+          await env.PROCESSED_MESSAGES.put(messageKey, 'completed', { expirationTtl: 86400 });
+        }
+      } catch (error) {
+        console.error('Error processing message:', error);
+        // Remove from KV on error to allow retry
+        if (env.PROCESSED_MESSAGES) {
+          await env.PROCESSED_MESSAGES.delete(messageKey);
+        }
+      }
+    } catch (e) {
+      console.error('Background processing error:', e);
     }
-    await env.PROCESSED_MESSAGES.put(messageKey, 'processing', { expirationTtl: 86400 });
-  }
-
-  try {
-    // Process the message
-    await processQuestion(messageEvent, env, slackClient);
-
-    // Mark as completed
-    if (env.PROCESSED_MESSAGES) {
-      await env.PROCESSED_MESSAGES.put(messageKey, 'completed', { expirationTtl: 86400 });
-    }
-  } catch (error) {
-    console.error('Error processing message:', error);
-    // Remove from KV on error to allow retry
-    if (env.PROCESSED_MESSAGES) {
-      await env.PROCESSED_MESSAGES.delete(messageKey);
-    }
-  }
+  })());
 
   return new Response('OK');
 }
