@@ -55,10 +55,9 @@ export async function handleSlackEvent(
     return new Response('OK');
   }
 
-  // Skip thread replies (only process top-level messages)
-  if (messageEvent.thread_ts) {
-    console.log('Skipping thread reply');
-    return new Response('OK');
+  // Handle thread replies (sync to Linear comments)
+  if (messageEvent.thread_ts && messageEvent.thread_ts !== messageEvent.ts) {
+    return handleThreadReply(messageEvent, env);
   }
 
   // Check if message is from target channel
@@ -223,4 +222,66 @@ async function processQuestion(
   if (!replyResult.ok) {
     console.error('Failed to post Slack reply:', replyResult.error);
   }
+}
+
+/**
+ * Handle thread replies - sync to Linear comments
+ */
+async function handleThreadReply(
+  event: SlackMessageEvent,
+  env: Env
+): Promise<Response> {
+  // Check if we have the issue mapping for the parent message
+  if (!env.ISSUE_MAPPINGS) {
+    console.log('ISSUE_MAPPINGS KV not configured, skipping thread reply');
+    return new Response('OK');
+  }
+
+  const mappingKey = `issue:${event.channel}:${event.thread_ts}`;
+  const mappingData = await env.ISSUE_MAPPINGS.get(mappingKey);
+
+  if (!mappingData) {
+    console.log(`No issue mapping found for thread: ${mappingKey}`);
+    return new Response('OK');
+  }
+
+  const { issueId, issueIdentifier } = JSON.parse(mappingData) as {
+    issueId: string;
+    issueIdentifier: string;
+  };
+
+  console.log(`Found issue for thread reply: ${issueIdentifier}`);
+
+  // Deduplicate
+  const commentKey = `comment:${event.channel}:${event.ts}`;
+  if (isDuplicate(commentKey)) {
+    console.log(`Skipping duplicate thread reply: ${commentKey}`);
+    return new Response('OK');
+  }
+
+  // Get author name
+  const slackClient = new SlackClient(env.SLACK_BOT_TOKEN);
+  const authorInfo = await slackClient.getUserInfo(event.user);
+  const authorName = authorInfo.user?.real_name || authorInfo.user?.name || 'Unknown';
+
+  // Skip bot messages (our own replies)
+  if (authorInfo.user?.is_bot) {
+    console.log('Skipping bot message');
+    return new Response('OK');
+  }
+
+  // Format comment body
+  const commentBody = `**${authorName}** (Slack에서):\n\n${event.text}`;
+
+  // Add comment to Linear issue
+  const linearClient = new LinearClient(env.LINEAR_API_TOKEN);
+  const commentResult = await linearClient.addComment(issueId, commentBody);
+
+  if (commentResult.success) {
+    console.log(`Added comment to ${issueIdentifier}`);
+  } else {
+    console.error(`Failed to add comment: ${commentResult.error}`);
+  }
+
+  return new Response('OK');
 }
