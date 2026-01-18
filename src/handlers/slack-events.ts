@@ -64,30 +64,26 @@ export async function handleSlackEvent(
   }
 
   // Check if message is from target channel
-  const slackClient = new SlackClient(env.SLACK_BOT_TOKEN);
-  console.log(`Received message in channel: ${messageEvent.channel}, user: ${messageEvent.user}`);
-
-  const channelInfo = await slackClient.getChannelInfo(messageEvent.channel);
-  console.log(`Channel info response:`, JSON.stringify(channelInfo));
-
-  if (!channelInfo.ok) {
-    console.log(`Failed to get channel info: ${channelInfo.error}`);
-    // 채널 정보를 못 가져와도 일단 진행 (디버깅용)
-  }
-
-  /* Channel check disabled for debugging
-  const channelName = channelInfo.channel?.name;
-  if (channelName && channelName !== env.TARGET_CHANNEL_NAME) {
-    console.log(`Skipping message from channel: ${channelName} (target: ${env.TARGET_CHANNEL_NAME})`);
-    return new Response('OK');
-  }
-  */
-
   console.log(`Processing message from target channel (or unknown channel for debugging)`);
 
   // Process in background
   ctx.waitUntil((async () => {
     try {
+      // Check if message is from target channel (now inside background task)
+      const slackClient = new SlackClient(env.SLACK_BOT_TOKEN);
+      const channelInfo = await slackClient.getChannelInfo(messageEvent.channel);
+
+      if (channelInfo.ok && channelInfo.channel?.name) {
+        const channelName = channelInfo.channel.name;
+        if (channelName !== env.TARGET_CHANNEL_NAME) {
+          console.log(`Skipping message from channel: ${channelName} (target: ${env.TARGET_CHANNEL_NAME})`);
+          return;
+        }
+      } else {
+        console.log(`Failed to get channel info or name, proceeding anyway for safety: ${JSON.stringify(channelInfo)}`);
+      }
+
+      // Check for duplicate processing
       // Check for duplicate processing
       const messageKey = `msg:${messageEvent.channel}:${messageEvent.ts}`;
 
