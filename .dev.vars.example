@@ -1,0 +1,14 @@
+# Slack App credentials
+# Get from: https://api.slack.com/apps > Your App > OAuth & Permissions
+SLACK_BOT_TOKEN=xoxb-xxxxx
+
+# Get from: https://api.slack.com/apps > Your App > Basic Information > Signing Secret
+SLACK_SIGNING_SECRET=xxxxx
+
+# Linear API Token
+# Get from: https://linear.app/settings/api
+LINEAR_API_TOKEN=lin_api_xxxxx
+
+# Anthropic API Key
+# Get from: https://console.anthropic.com/
+ANTHROPIC_API_KEY=sk-ant-xxxxx
