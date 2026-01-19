@@ -66,6 +66,7 @@ export interface SlackUserInfo {
       email?: string;
       display_name: string;
     };
+    is_bot?: boolean;
   };
   error?: string;
 }

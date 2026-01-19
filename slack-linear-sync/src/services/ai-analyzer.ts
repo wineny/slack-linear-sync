@@ -1,5 +1,5 @@
 /**
- * AI analyzer using Anthropic Claude Haiku for extracting issue title/description
+ * AI analyzer using Anthropic Claude Haiku 4.5 for extracting issue title/description
  */
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -77,9 +77,15 @@ JSON만 출력하세요. 다른 텍스트는 포함하지 마세요.`;
 
       const parsed = JSON.parse(jsonMatch[0]) as { title: string; description: string };
 
+      // Ensure Slack permalink is always included in description
+      let finalDescription = parsed.description;
+      if (slackPermalink && !finalDescription.includes(slackPermalink)) {
+        finalDescription += `\n\n---\n📎 [Slack 원본 메시지](${slackPermalink})`;
+      }
+
       return {
         title: parsed.title,
-        description: parsed.description,
+        description: finalDescription,
         success: true,
       };
     } catch (error) {

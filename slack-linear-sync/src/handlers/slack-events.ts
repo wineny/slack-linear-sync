@@ -25,7 +25,8 @@ function isDuplicate(messageKey: string): boolean {
 
 export async function handleSlackEvent(
   payload: SlackEventPayload,
-  env: Env
+  env: Env,
+  ctx: ExecutionContext
 ): Promise<Response> {
   // URL verification challenge
   if (payload.type === 'url_verification') {
@@ -43,78 +44,86 @@ export async function handleSlackEvent(
 
   // Handle reaction events
   if (event.type === 'reaction_added' || event.type === 'reaction_removed') {
-    return handleSlackReaction(event as SlackReactionEvent, env);
+    ctx.waitUntil(handleSlackReaction(event as SlackReactionEvent, env));
+    return new Response('OK');
   }
 
   // Cast to message event for type safety
   const messageEvent = event as SlackMessageEvent;
 
   // Skip non-message events and subtypes (edits, deletes, bot messages, etc.)
-  if (messageEvent.type !== 'message' || messageEvent.subtype) {
+  // But allow file_share (image/file attachments with text)
+  if (messageEvent.type !== 'message' ||
+      (messageEvent.subtype && messageEvent.subtype !== 'file_share')) {
     console.log(`Skipping event: type=${messageEvent.type}, subtype=${messageEvent.subtype}`);
     return new Response('OK');
   }
 
-  // Skip thread replies (only process top-level messages)
-  if (messageEvent.thread_ts) {
-    console.log('Skipping thread reply');
+  // Handle thread replies (sync to Linear comments)
+  if (messageEvent.thread_ts && messageEvent.thread_ts !== messageEvent.ts) {
+    ctx.waitUntil(handleThreadReply(messageEvent, env));
     return new Response('OK');
   }
 
   // Check if message is from target channel
-  const slackClient = new SlackClient(env.SLACK_BOT_TOKEN);
-  console.log(`Received message in channel: ${messageEvent.channel}, user: ${messageEvent.user}`);
-
-  const channelInfo = await slackClient.getChannelInfo(messageEvent.channel);
-  console.log(`Channel info response:`, JSON.stringify(channelInfo));
-
-  if (!channelInfo.ok) {
-    console.log(`Failed to get channel info: ${channelInfo.error}`);
-    // 채널 정보를 못 가져와도 일단 진행 (디버깅용)
-  }
-
-  const channelName = channelInfo.channel?.name;
-  if (channelName && channelName !== env.TARGET_CHANNEL_NAME) {
-    console.log(`Skipping message from channel: ${channelName} (target: ${env.TARGET_CHANNEL_NAME})`);
-    return new Response('OK');
-  }
-
   console.log(`Processing message from target channel (or unknown channel for debugging)`);
 
-  // Check for duplicate processing
-  const messageKey = `msg:${messageEvent.channel}:${messageEvent.ts}`;
+  // Process in background
+  ctx.waitUntil((async () => {
+    try {
+      // Check if message is from target channel (now inside background task)
+      const slackClient = new SlackClient(env.SLACK_BOT_TOKEN);
+      const channelInfo = await slackClient.getChannelInfo(messageEvent.channel);
 
-  // In-memory deduplication (works without KV)
-  if (isDuplicate(messageKey)) {
-    console.log(`Skipping duplicate message (in-memory): ${messageKey}`);
-    return new Response('OK');
-  }
+      if (channelInfo.ok && channelInfo.channel?.name) {
+        const channelName = channelInfo.channel.name;
+        if (channelName !== env.TARGET_CHANNEL_NAME) {
+          console.log(`Skipping message from channel: ${channelName} (target: ${env.TARGET_CHANNEL_NAME})`);
+          return;
+        }
+      } else {
+        console.log(`Failed to get channel info or name, proceeding anyway for safety: ${JSON.stringify(channelInfo)}`);
+      }
 
-  // Also check KV if available
-  if (env.PROCESSED_MESSAGES) {
-    const existing = await env.PROCESSED_MESSAGES.get(messageKey);
-    if (existing) {
-      console.log(`Skipping duplicate message (KV): ${messageKey}`);
-      return new Response('OK');
+      // Check for duplicate processing
+      // Check for duplicate processing
+      const messageKey = `msg:${messageEvent.channel}:${messageEvent.ts}`;
+
+      // In-memory deduplication (works without KV)
+      if (isDuplicate(messageKey)) {
+        console.log(`Skipping duplicate message (in-memory): ${messageKey}`);
+        return;
+      }
+
+      // Also check KV if available
+      if (env.PROCESSED_MESSAGES) {
+        const existing = await env.PROCESSED_MESSAGES.get(messageKey);
+        if (existing) {
+          console.log(`Skipping duplicate message (KV): ${messageKey}`);
+          return;
+        }
+        await env.PROCESSED_MESSAGES.put(messageKey, 'processing', { expirationTtl: 86400 });
+      }
+
+      try {
+        // Process the message
+        await processQuestion(messageEvent, env, slackClient);
+
+        // Mark as completed
+        if (env.PROCESSED_MESSAGES) {
+          await env.PROCESSED_MESSAGES.put(messageKey, 'completed', { expirationTtl: 86400 });
+        }
+      } catch (error) {
+        console.error('Error processing message:', error);
+        // Remove from KV on error to allow retry
+        if (env.PROCESSED_MESSAGES) {
+          await env.PROCESSED_MESSAGES.delete(messageKey);
+        }
+      }
+    } catch (e) {
+      console.error('Background processing error:', e);
     }
-    await env.PROCESSED_MESSAGES.put(messageKey, 'processing', { expirationTtl: 86400 });
-  }
-
-  try {
-    // Process the message
-    await processQuestion(messageEvent, env, slackClient);
-
-    // Mark as completed
-    if (env.PROCESSED_MESSAGES) {
-      await env.PROCESSED_MESSAGES.put(messageKey, 'completed', { expirationTtl: 86400 });
-    }
-  } catch (error) {
-    console.error('Error processing message:', error);
-    // Remove from KV on error to allow retry
-    if (env.PROCESSED_MESSAGES) {
-      await env.PROCESSED_MESSAGES.delete(messageKey);
-    }
-  }
+  })());
 
   return new Response('OK');
 }
@@ -223,4 +232,66 @@ async function processQuestion(
   if (!replyResult.ok) {
     console.error('Failed to post Slack reply:', replyResult.error);
   }
+}
+
+/**
+ * Handle thread replies - sync to Linear comments
+ */
+async function handleThreadReply(
+  event: SlackMessageEvent,
+  env: Env
+): Promise<Response> {
+  // Check if we have the issue mapping for the parent message
+  if (!env.ISSUE_MAPPINGS) {
+    console.log('ISSUE_MAPPINGS KV not configured, skipping thread reply');
+    return new Response('OK');
+  }
+
+  const mappingKey = `issue:${event.channel}:${event.thread_ts}`;
+  const mappingData = await env.ISSUE_MAPPINGS.get(mappingKey);
+
+  if (!mappingData) {
+    console.log(`No issue mapping found for thread: ${mappingKey}`);
+    return new Response('OK');
+  }
+
+  const { issueId, issueIdentifier } = JSON.parse(mappingData) as {
+    issueId: string;
+    issueIdentifier: string;
+  };
+
+  console.log(`Found issue for thread reply: ${issueIdentifier}`);
+
+  // Deduplicate
+  const commentKey = `comment:${event.channel}:${event.ts}`;
+  if (isDuplicate(commentKey)) {
+    console.log(`Skipping duplicate thread reply: ${commentKey}`);
+    return new Response('OK');
+  }
+
+  // Get author name
+  const slackClient = new SlackClient(env.SLACK_BOT_TOKEN);
+  const authorInfo = await slackClient.getUserInfo(event.user);
+  const authorName = authorInfo.user?.real_name || authorInfo.user?.name || 'Unknown';
+
+  // Skip bot messages (our own replies)
+  if (authorInfo.user?.is_bot) {
+    console.log('Skipping bot message');
+    return new Response('OK');
+  }
+
+  // Format comment body
+  const commentBody = `**${authorName}** (Slack에서):\n\n${event.text}`;
+
+  // Add comment to Linear issue
+  const linearClient = new LinearClient(env.LINEAR_API_TOKEN);
+  const commentResult = await linearClient.addComment(issueId, commentBody);
+
+  if (commentResult.success) {
+    console.log(`Added comment to ${issueIdentifier}`);
+  } else {
+    console.error(`Failed to add comment: ${commentResult.error}`);
+  }
+
+  return new Response('OK');
 }

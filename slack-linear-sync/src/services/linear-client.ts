@@ -173,4 +173,97 @@ export class LinearClient {
       };
     }
   }
+
+  /**
+   * Add a comment to an issue
+   */
+  async addComment(issueId: string, body: string): Promise<{ success: boolean; commentId?: string; error?: string }> {
+    try {
+      const result = await this.query<{
+        commentCreate: {
+          success: boolean;
+          comment?: {
+            id: string;
+          };
+        };
+      }>(
+        `
+        mutation CreateComment($input: CommentCreateInput!) {
+          commentCreate(input: $input) {
+            success
+            comment {
+              id
+            }
+          }
+        }
+      `,
+        {
+          input: {
+            issueId,
+            body,
+          },
+        }
+      );
+
+      if (result.commentCreate.success && result.commentCreate.comment) {
+        return { success: true, commentId: result.commentCreate.comment.id };
+      }
+
+      return { success: false, error: 'Comment creation failed' };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
+   * Link a Slack thread to an issue (creates official Slack integration)
+   * This enables bi-directional sync like Linear's native Slack integration
+   */
+  async linkSlackThread(
+    issueId: string,
+    slackUrl: string,
+    syncToCommentThread: boolean = true
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const result = await this.query<{
+        attachmentLinkSlack: {
+          success: boolean;
+          attachment?: {
+            id: string;
+          };
+        };
+      }>(
+        `
+        mutation AttachmentLinkSlack($issueId: String!, $url: String!, $syncToCommentThread: Boolean) {
+          attachmentLinkSlack(issueId: $issueId, url: $url, syncToCommentThread: $syncToCommentThread) {
+            success
+            attachment {
+              id
+            }
+          }
+        }
+      `,
+        {
+          issueId,
+          url: slackUrl,
+          syncToCommentThread,
+        }
+      );
+
+      if (result.attachmentLinkSlack.success) {
+        console.log(`Linked Slack thread to issue ${issueId}`);
+        return { success: true };
+      }
+
+      return { success: false, error: 'Slack link failed' };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
 }
