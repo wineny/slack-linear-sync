@@ -1,0 +1,19 @@
+{
+	"name": "linear-rona-bot",
+	"version": "1.0.0",
+	"private": true,
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"cf-typegen": "wrangler types"
+	},
+	"devDependencies": {
+		"typescript": "^5.5.2",
+		"wrangler": "^4.59.2"
+	},
+	"dependencies": {
+		"@linear/sdk": "^70.0.0",
+		"hono": "^4.11.4"
+	}
+}
