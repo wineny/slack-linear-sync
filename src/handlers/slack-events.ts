@@ -52,14 +52,18 @@ export async function handleSlackEvent(
   const messageEvent = event as SlackMessageEvent;
 
   // Skip non-message events and subtypes (edits, deletes, bot messages, etc.)
-  if (messageEvent.type !== 'message' || messageEvent.subtype) {
+  // But allow file_share (image/file attachments with text)
+  if (messageEvent.type !== 'message' ||
+      (messageEvent.subtype && messageEvent.subtype !== 'file_share')) {
     console.log(`Skipping event: type=${messageEvent.type}, subtype=${messageEvent.subtype}`);
     return new Response('OK');
   }
 
-  // Handle thread replies (sync to Linear comments)
+  // Handle thread replies - now handled by Linear's official Slack app via synced thread
+  // The linkSlackThread() API with syncToCommentThread: true enables bi-directional sync
+  // so we no longer need our custom comment syncing
   if (messageEvent.thread_ts && messageEvent.thread_ts !== messageEvent.ts) {
-    ctx.waitUntil(handleThreadReply(messageEvent, env));
+    console.log('Thread reply detected - handled by Linear Slack synced thread');
     return new Response('OK');
   }
 
@@ -208,6 +212,21 @@ async function processQuestion(
 
   console.log(`Created Linear issue: ${issueResult.issueIdentifier}`);
 
+  // Link Slack thread to Linear issue for bi-directional comment sync
+  // Linear's official Slack app will handle comment sync via synced thread
+  if (issueResult.issueId && permalink) {
+    const linkResult = await linearClient.linkSlackThread(
+      issueResult.issueId,
+      permalink,
+      true  // syncToCommentThread: enables bi-directional sync
+    );
+    if (linkResult.success) {
+      console.log(`Linked Slack thread to issue ${issueResult.issueIdentifier}`);
+    } else {
+      console.error(`Failed to link Slack thread: ${linkResult.error}`);
+    }
+  }
+
   // Store mapping: Slack message ts -> Linear issue ID (for reaction-based Done)
   if (env.ISSUE_MAPPINGS && issueResult.issueId) {
     const mappingKey = `issue:${event.channel}:${event.ts}`;
@@ -232,64 +251,6 @@ async function processQuestion(
   }
 }
 
-/**
- * Handle thread replies - sync to Linear comments
- */
-async function handleThreadReply(
-  event: SlackMessageEvent,
-  env: Env
-): Promise<Response> {
-  // Check if we have the issue mapping for the parent message
-  if (!env.ISSUE_MAPPINGS) {
-    console.log('ISSUE_MAPPINGS KV not configured, skipping thread reply');
-    return new Response('OK');
-  }
-
-  const mappingKey = `issue:${event.channel}:${event.thread_ts}`;
-  const mappingData = await env.ISSUE_MAPPINGS.get(mappingKey);
-
-  if (!mappingData) {
-    console.log(`No issue mapping found for thread: ${mappingKey}`);
-    return new Response('OK');
-  }
-
-  const { issueId, issueIdentifier } = JSON.parse(mappingData) as {
-    issueId: string;
-    issueIdentifier: string;
-  };
-
-  console.log(`Found issue for thread reply: ${issueIdentifier}`);
-
-  // Deduplicate
-  const commentKey = `comment:${event.channel}:${event.ts}`;
-  if (isDuplicate(commentKey)) {
-    console.log(`Skipping duplicate thread reply: ${commentKey}`);
-    return new Response('OK');
-  }
-
-  // Get author name
-  const slackClient = new SlackClient(env.SLACK_BOT_TOKEN);
-  const authorInfo = await slackClient.getUserInfo(event.user);
-  const authorName = authorInfo.user?.real_name || authorInfo.user?.name || 'Unknown';
-
-  // Skip bot messages (our own replies)
-  if (authorInfo.user?.is_bot) {
-    console.log('Skipping bot message');
-    return new Response('OK');
-  }
-
-  // Format comment body
-  const commentBody = `**${authorName}** (Slack에서):\n\n${event.text}`;
-
-  // Add comment to Linear issue
-  const linearClient = new LinearClient(env.LINEAR_API_TOKEN);
-  const commentResult = await linearClient.addComment(issueId, commentBody);
-
-  if (commentResult.success) {
-    console.log(`Added comment to ${issueIdentifier}`);
-  } else {
-    console.error(`Failed to add comment: ${commentResult.error}`);
-  }
-
-  return new Response('OK');
-}
+// NOTE: handleThreadReply() function removed
+// Thread reply syncing is now handled by Linear's official Slack app via synced thread
+// The linkSlackThread() API with syncToCommentThread: true enables bi-directional sync
