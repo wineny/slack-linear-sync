@@ -1,9 +1,12 @@
 import { Hono } from 'hono';
 import { LinearClient } from '@linear/sdk';
-import type { Bindings, UserConfig, ReminderFrequency } from '../types/index.js';
+import type { Bindings, UserConfig } from '../types/index.js';
 import { parseUserCommand, getCommandResponse } from '../handlers/user-config.js';
 
 const webhook = new Hono<{ Bindings: Bindings }>();
+
+// 계획적인 로나 봇 User ID
+const BOT_USER_ID = '1fc40442-92dc-45d6-87ab-6ba17e5c0d15';
 
 webhook.post('/', async (c) => {
   const body = await c.req.text();
@@ -36,12 +39,39 @@ webhook.post('/', async (c) => {
       const notification = payload.notification;
       const issueId = notification?.issueId || notification?.issue?.id;
       const commentBody = notification?.comment?.body || '';
+      const commentId = notification?.comment?.id;
       const userId = notification?.actor?.id; // 댓글 작성자 (멘션한 사람)
 
       console.log('=== AppUserNotification Details ===');
       console.log('Issue ID:', issueId);
+      console.log('Comment ID:', commentId);
       console.log('Comment body:', commentBody);
       console.log('User ID (actor):', userId);
+
+      // 1. 자기 댓글에는 응답하지 않음
+      if (userId === BOT_USER_ID) {
+        console.log('Skipping: Bot own comment');
+        return c.json({ success: true, skipped: 'self_comment' });
+      }
+
+      // 2. 봇 멘션 확인 (로나, @로나, @계획적인 로나, 또는 명령어 포함)
+      const isBotMentioned = /(@로나|@계획적인\s*로나|로나\s+(매일|월수금|주간|알림|끄기))/i.test(commentBody);
+      if (!isBotMentioned) {
+        console.log('Skipping: Bot not mentioned in comment');
+        return c.json({ success: true, skipped: 'no_mention' });
+      }
+
+      // 3. 중복 응답 방지
+      if (commentId) {
+        const dedupeKey = `responded:${commentId}`;
+        const existing = await c.env.LINEAR_TOKENS.get(dedupeKey);
+        if (existing) {
+          console.log('Skipping: Already responded to this comment');
+          return c.json({ success: true, skipped: 'duplicate' });
+        }
+        // 응답 전에 먼저 기록 (24시간 후 자동 삭제)
+        await c.env.LINEAR_TOKENS.put(dedupeKey, 'true', { expirationTtl: 86400 });
+      }
 
       if (issueId && commentBody) {
         // 사용자 명령 파싱
