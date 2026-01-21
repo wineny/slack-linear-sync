@@ -15,8 +15,17 @@ DONE_EMOJI = "해결"
 binding = "ISSUE_MAPPINGS"
 id = "a8e8f26167fb4d3ab5f551c7727501d3"
 
+# KV namespace for OAuth tokens (shared with linear-rona-bot)
+[[kv_namespaces]]
+binding = "LINEAR_TOKENS"
+id = "7436de4f48264cf398cea9eeb3b89057"
+
+# Daily token health check - 09:00 KST (00:00 UTC)
+[triggers]
+crons = ["0 0 * * *"]
+
 # Secrets (set via wrangler secret put):
 # - SLACK_BOT_TOKEN
 # - SLACK_SIGNING_SECRET
-# - LINEAR_API_TOKEN
+# - LINEAR_API_TOKEN (deprecated, use LINEAR_TOKENS KV instead)
 # - ANTHROPIC_API_KEY

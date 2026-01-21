@@ -16,6 +16,9 @@ export interface Env {
   // KV namespace for deduplication and issue mapping
   PROCESSED_MESSAGES?: KVNamespace;
   ISSUE_MAPPINGS?: KVNamespace;
+
+  // KV namespace for OAuth tokens (shared with linear-rona-bot)
+  LINEAR_TOKENS: KVNamespace;
 }
 
 // Slack Event API types
@@ -65,6 +68,8 @@ export interface SlackUserInfo {
     profile: {
       email?: string;
       display_name: string;
+      image_72?: string;
+      image_192?: string;
     };
     is_bot?: boolean;
   };

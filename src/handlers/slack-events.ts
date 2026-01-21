@@ -137,17 +137,25 @@ async function processQuestion(
 ): Promise<void> {
   console.log(`Processing question from user ${event.user} in channel ${event.channel}`);
 
-  // Initialize clients
-  const linearClient = new LinearClient(env.LINEAR_API_TOKEN);
+  // Get OAuth token from KV (shared with linear-rona-bot)
+  // This enables createAsUser to show "Author (via 계획적인 로나)" instead of API key owner
+  const oauthToken = await env.LINEAR_TOKENS.get('access_token');
+  if (!oauthToken) {
+    console.error('OAuth token not found in LINEAR_TOKENS KV. Falling back to API key.');
+  }
+
+  // Initialize clients - prefer OAuth token for createAsUser support
+  const linearClient = new LinearClient(oauthToken || env.LINEAR_API_TOKEN);
   const aiAnalyzer = new AIAnalyzer(env.ANTHROPIC_API_KEY);
 
   // Get Slack permalink for the message
   const permalinkResult = await slackClient.getPermalink(event.channel, event.ts);
   const permalink = permalinkResult.ok ? permalinkResult.permalink : undefined;
 
-  // Get question author's name (for description)
+  // Get question author's info (for description and createAsUser)
   const authorInfo = await slackClient.getUserInfo(event.user);
   const authorName = authorInfo.user?.real_name || authorInfo.user?.name || 'Unknown';
+  const authorAvatar = authorInfo.user?.profile?.image_72 || authorInfo.user?.profile?.image_192;
 
   // Check for mentions in the message to assign
   // Slack mentions look like <@U05AZFG3CLC>
@@ -195,6 +203,7 @@ async function processQuestion(
   }
 
   // Create Linear issue
+  // If OAuth token is available, use createAsUser to show "Author (via 계획적인 로나)"
   const issueResult = await linearClient.createIssue({
     title: analysis.title,
     description: analysis.description,
@@ -203,6 +212,9 @@ async function processQuestion(
     assigneeId: assigneeId,
     subscriberIds: subscriberIds.length > 0 ? subscriberIds : undefined,
     priority: 3, // Normal priority
+    // OAuth actor=app mode: show Slack author instead of API key owner
+    createAsUser: oauthToken ? authorName : undefined,
+    displayIconUrl: oauthToken ? authorAvatar : undefined,
   });
 
   if (!issueResult.success) {

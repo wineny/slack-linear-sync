@@ -63,6 +63,8 @@ export class LinearClient {
 
   /**
    * Create a new issue
+   * @param params.createAsUser - Display name for the creator (OAuth actor=app mode only)
+   * @param params.displayIconUrl - Avatar URL for the creator (OAuth actor=app mode only)
    */
   async createIssue(params: {
     title: string;
@@ -72,8 +74,29 @@ export class LinearClient {
     assigneeId?: string;
     subscriberIds?: string[];
     priority?: number;
+    // OAuth actor=app mode: display as "User (via App)"
+    createAsUser?: string;
+    displayIconUrl?: string;
   }): Promise<LinearIssueResult> {
     try {
+      const input: Record<string, unknown> = {
+        title: params.title,
+        description: params.description,
+        teamId: params.teamId,
+        stateId: params.stateId,
+        assigneeId: params.assigneeId,
+        subscriberIds: params.subscriberIds,
+        priority: params.priority,
+      };
+
+      // OAuth actor=app mode: add createAsUser and displayIconUrl
+      if (params.createAsUser) {
+        input.createAsUser = params.createAsUser;
+      }
+      if (params.displayIconUrl) {
+        input.displayIconUrl = params.displayIconUrl;
+      }
+
       const result = await this.query<{
         issueCreate: {
           success: boolean;
@@ -96,17 +119,7 @@ export class LinearClient {
           }
         }
       `,
-        {
-          input: {
-            title: params.title,
-            description: params.description,
-            teamId: params.teamId,
-            stateId: params.stateId,
-            assigneeId: params.assigneeId,
-            subscriberIds: params.subscriberIds,
-            priority: params.priority,
-          },
-        }
+        { input }
       );
 
       if (result.issueCreate.success && result.issueCreate.issue) {
