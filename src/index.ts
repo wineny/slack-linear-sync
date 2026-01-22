@@ -66,6 +66,8 @@ app.get('/debug/config', async (c) => {
     hasKV: !!env.PROCESSED_MESSAGES,
     hasOAuthToken: !!oauthToken,
     oauthTokenLength: oauthToken?.length || 0,
+    issueEmoji: env.ISSUE_EMOJI,
+    aiWorkerUrl: env.AI_WORKER_URL,
   });
 });
 

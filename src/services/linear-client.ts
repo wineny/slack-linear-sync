@@ -3,7 +3,7 @@
  * Lightweight implementation without @linear/sdk for Workers compatibility
  */
 
-import type { LinearUser, LinearIssueResult } from '../types/index.js';
+import type { LinearUser, LinearIssueResult, LinearProject } from '../types/index.js';
 
 export class LinearClient {
   private token: string;
@@ -231,10 +231,29 @@ export class LinearClient {
     }
   }
 
-  /**
-   * Link a Slack thread to an issue (creates official Slack integration)
-   * This enables bi-directional sync like Linear's native Slack integration
-   */
+  async getProjects(): Promise<LinearProject[]> {
+    const result = await this.query<{
+      projects: { nodes: LinearProject[] };
+    }>(`
+      query {
+        projects(filter: { state: { eq: "started" } }) {
+          nodes {
+            id
+            name
+            description
+            teams {
+              nodes {
+                id
+              }
+            }
+          }
+        }
+      }
+    `);
+
+    return result.projects.nodes;
+  }
+
   async linkSlackThread(
     issueId: string,
     slackUrl: string,

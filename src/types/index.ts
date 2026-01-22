@@ -5,7 +5,9 @@ export interface Env {
   LINEAR_TEAM_ID: string;
   LINEAR_DEFAULT_STATE_ID: string;
   LINEAR_DONE_STATE_ID: string;
-  DONE_EMOJI: string; // e.g., "white_check_mark"
+  DONE_EMOJI: string;
+  ISSUE_EMOJI: string;
+  AI_WORKER_URL: string;
 
   // Secrets
   SLACK_BOT_TOKEN: string;
@@ -108,4 +110,11 @@ export interface AnalysisResult {
   description: string;
   success: boolean;
   error?: string;
+}
+
+export interface LinearProject {
+  id: string;
+  name: string;
+  description?: string;
+  teams: { nodes: Array<{ id: string }> };
 }

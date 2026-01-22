@@ -108,4 +108,45 @@ export class SlackClient {
       limit: '1',
     });
   }
+
+  async getThreadMessages(
+    channel: string,
+    threadTs: string
+  ): Promise<{
+    ok: boolean;
+    messages?: Array<{
+      ts: string;
+      thread_ts?: string;
+      text: string;
+      user: string;
+    }>;
+    error?: string;
+  }> {
+    return this.request('conversations.replies', {
+      channel,
+      ts: threadTs,
+      limit: '100',
+    });
+  }
+
+  async getMessage(
+    channel: string,
+    ts: string
+  ): Promise<{
+    ok: boolean;
+    messages?: Array<{
+      ts: string;
+      thread_ts?: string;
+      text: string;
+      user: string;
+    }>;
+    error?: string;
+  }> {
+    return this.request('conversations.history', {
+      channel,
+      latest: ts,
+      limit: '1',
+      inclusive: 'true',
+    });
+  }
 }
