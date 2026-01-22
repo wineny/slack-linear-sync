@@ -12,6 +12,8 @@ export interface Env {
   SLACK_SIGNING_SECRET: string;
   LINEAR_API_TOKEN: string;
   ANTHROPIC_API_KEY: string;
+  LINEAR_CLIENT_ID: string;
+  LINEAR_CLIENT_SECRET: string;
 
   // KV namespace for deduplication and issue mapping
   PROCESSED_MESSAGES?: KVNamespace;

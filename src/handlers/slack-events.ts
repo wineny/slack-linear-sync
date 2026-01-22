@@ -8,6 +8,7 @@ import { LinearClient } from '../services/linear-client.js';
 import { AIAnalyzer } from '../services/ai-analyzer.js';
 import { mapSlackUserToLinear } from '../utils/user-mapper.js';
 import { handleSlackReaction } from './slack-reactions.js';
+import { getValidAccessToken } from '../utils/token-manager.js';
 
 // In-memory deduplication (for when KV is not available)
 const processedMessages = new Set<string>();
@@ -137,11 +138,20 @@ async function processQuestion(
 ): Promise<void> {
   console.log(`Processing question from user ${event.user} in channel ${event.channel}`);
 
-  // Get OAuth token from KV (shared with linear-rona-bot)
-  // This enables createAsUser to show "Author (via 계획적인 로나)" instead of API key owner
-  const oauthToken = await env.LINEAR_TOKENS.get('access_token');
+  // Get OAuth token with automatic refresh if expired
+  const tokenResult = await getValidAccessToken(
+    env.LINEAR_TOKENS,
+    env.LINEAR_CLIENT_ID,
+    env.LINEAR_CLIENT_SECRET
+  );
+
+  if (tokenResult.refreshed) {
+    console.log('OAuth token was refreshed automatically');
+  }
+
+  const oauthToken = tokenResult.token;
   if (!oauthToken) {
-    console.error('OAuth token not found in LINEAR_TOKENS KV. Falling back to API key.');
+    console.error(`OAuth token not available: ${tokenResult.error}. Falling back to API key.`);
   }
 
   // Initialize clients - prefer OAuth token for createAsUser support

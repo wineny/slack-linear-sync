@@ -8,6 +8,7 @@
 import { Hono } from 'hono';
 import { verifySlackSignature } from './utils/signature.js';
 import { handleSlackEvent } from './handlers/slack-events.js';
+import { getValidAccessToken } from './utils/token-manager.js';
 import type { Env, SlackEventPayload } from './types/index.js';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -68,25 +69,31 @@ app.get('/debug/config', async (c) => {
   });
 });
 
-// Health check endpoint - validates OAuth token
+// Health check endpoint - validates OAuth token with auto-refresh
 app.get('/health', async (c) => {
   const env = c.env;
-  const oauthToken = await env.LINEAR_TOKENS.get('access_token');
 
-  if (!oauthToken) {
+  // Try to get valid token (with auto-refresh if expired)
+  const tokenResult = await getValidAccessToken(
+    env.LINEAR_TOKENS,
+    env.LINEAR_CLIENT_ID,
+    env.LINEAR_CLIENT_SECRET
+  );
+
+  if (!tokenResult.token) {
     return c.json({
       status: 'error',
-      error: 'OAuth token missing',
+      error: tokenResult.error || 'OAuth token missing',
       action: 'Re-authorize at https://linear-rona-bot.ny-4f1.workers.dev/oauth/authorize'
     }, 500);
   }
 
-  // Test Linear API with the token
+  // Test the token
   try {
     const response = await fetch('https://api.linear.app/graphql', {
       method: 'POST',
       headers: {
-        'Authorization': oauthToken,
+        'Authorization': tokenResult.token,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ query: '{ viewer { id name } }' }),
@@ -97,7 +104,7 @@ app.get('/health', async (c) => {
     if (data.errors || !data.data?.viewer) {
       return c.json({
         status: 'error',
-        error: 'OAuth token invalid or expired',
+        error: 'OAuth token invalid',
         action: 'Re-authorize at https://linear-rona-bot.ny-4f1.workers.dev/oauth/authorize'
       }, 500);
     }
@@ -105,7 +112,8 @@ app.get('/health', async (c) => {
     return c.json({
       status: 'ok',
       linearUser: data.data.viewer.name,
-      tokenLength: oauthToken.length
+      tokenLength: tokenResult.token.length,
+      tokenRefreshed: tokenResult.refreshed
     });
   } catch (error) {
     return c.json({
@@ -116,36 +124,25 @@ app.get('/health', async (c) => {
   }
 });
 
-// Cron handler for daily token health check
+// Cron handler for daily token health check with auto-refresh
 async function checkTokenHealth(env: Env): Promise<void> {
-  const oauthToken = await env.LINEAR_TOKENS.get('access_token');
+  // Try to get valid token (with auto-refresh if expired)
+  const tokenResult = await getValidAccessToken(
+    env.LINEAR_TOKENS,
+    env.LINEAR_CLIENT_ID,
+    env.LINEAR_CLIENT_SECRET
+  );
 
-  if (!oauthToken) {
-    await sendSlackAlert(env, '🚨 Linear OAuth 토큰이 없습니다! 재인증 필요:\nhttps://linear-rona-bot.ny-4f1.workers.dev/oauth/authorize');
+  if (!tokenResult.token) {
+    await sendSlackAlert(env, `🚨 Linear OAuth 토큰 오류: ${tokenResult.error}\n재인증 필요: https://linear-rona-bot.ny-4f1.workers.dev/oauth/authorize`);
     return;
   }
 
-  try {
-    const response = await fetch('https://api.linear.app/graphql', {
-      method: 'POST',
-      headers: {
-        'Authorization': oauthToken,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ query: '{ viewer { id } }' }),
-    });
-
-    const data = await response.json() as { errors?: unknown[] };
-
-    if (data.errors) {
-      await sendSlackAlert(env, '🚨 Linear OAuth 토큰이 만료되었습니다! 재인증 필요:\nhttps://linear-rona-bot.ny-4f1.workers.dev/oauth/authorize');
-    } else {
-      console.log('Token health check passed');
-    }
-  } catch (error) {
-    console.error('Token health check failed:', error);
-    await sendSlackAlert(env, `🚨 Linear API 연결 실패: ${String(error)}`);
+  if (tokenResult.refreshed) {
+    console.log('Token was auto-refreshed during health check');
   }
+
+  console.log('Token health check passed');
 }
 
 async function sendSlackAlert(env: Env, message: string): Promise<void> {
