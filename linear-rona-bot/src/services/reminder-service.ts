@@ -10,6 +10,7 @@ import { TEST_USER_ID } from '../types/index.js';
 import { LinearGraphQLClient } from './linear-client.js';
 import { shouldRemind } from '../utils/issue-source.js';
 import { getNoCycleMessage, getOverdueMessage } from '../utils/message-templates.js';
+import { getValidAccessToken } from '../utils/token-manager.js';
 
 // Phase 1: 테스트 모드 (ny@gpters.org만 대상)
 const TEST_MODE = true;
@@ -97,11 +98,23 @@ export async function processTeamReminders(
   team: TeamInfo,
   env: Bindings
 ): Promise<{ noCycle: number; overdue: number; skipped: number }> {
-  const accessToken = await env.LINEAR_TOKENS.get('access_token');
-  if (!accessToken) {
-    console.error('No access token found');
+  // 토큰 유효성 검사 및 자동 갱신
+  const tokenResult = await getValidAccessToken(
+    env.LINEAR_TOKENS,
+    env.LINEAR_CLIENT_ID,
+    env.LINEAR_CLIENT_SECRET
+  );
+
+  if (!tokenResult.token) {
+    console.error('Token error:', tokenResult.error);
     return { noCycle: 0, overdue: 0, skipped: 0 };
   }
+
+  if (tokenResult.refreshed) {
+    console.log('Token was refreshed automatically');
+  }
+
+  const accessToken = tokenResult.token;
 
   const linear = new LinearGraphQLClient(accessToken);
   const activeCycle = await linear.getActiveCycle(team.id);
