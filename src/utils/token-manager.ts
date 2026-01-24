@@ -6,6 +6,7 @@
 interface TokenRefreshResult {
   success: boolean;
   accessToken?: string;
+  refreshToken?: string;  // 새 refresh token (rotation 대응)
   error?: string;
 }
 
@@ -40,6 +41,7 @@ export async function refreshAccessToken(
       return {
         success: true,
         accessToken: data.access_token,
+        refreshToken: data.refresh_token,  // rotation된 새 refresh token
       };
     }
 
@@ -107,9 +109,17 @@ export async function getValidAccessToken(
   const result = await refreshAccessToken(refreshToken, clientId, clientSecret);
 
   if (result.success && result.accessToken) {
-    // Save new token to KV
+    // Save new tokens to KV
     await kv.put('access_token', result.accessToken);
-    console.log('Access token refreshed successfully');
+
+    // 새 refresh token이 있으면 저장 (rotation 대응)
+    if (result.refreshToken) {
+      await kv.put('refresh_token', result.refreshToken);
+      console.log('Access token and refresh token rotated successfully');
+    } else {
+      console.log('Access token refreshed successfully');
+    }
+
     return { token: result.accessToken, refreshed: true };
   }
 
