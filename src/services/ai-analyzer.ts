@@ -255,12 +255,18 @@ ${slackPermalink ? `- Slack 스레드: ${slackPermalink}` : ''}`;
   }
 
   async analyzeSlackThread(
-    messages: Array<{ author: string; text: string }>,
+    messages: Array<{ author: string; text: string; isTarget?: boolean }>,
     context?: ThreadAnalysisContext,
     slackPermalink?: string
   ): Promise<ThreadAnalysisResult> {
+    // 타겟 메시지는 특별히 표시
     const conversationText = messages
-      .map((m) => `**${m.author}**: ${m.text}`)
+      .map((m) => {
+        if (m.isTarget) {
+          return `>>> **[🎯 이슈 대상]** **${m.author}**: ${m.text}`;
+        }
+        return `**${m.author}**: ${m.text}`;
+      })
       .join('\n\n');
 
     const contextSection = this.buildContextSection(context);
@@ -277,13 +283,29 @@ ${slackPermalink ? `- Slack 스레드: ${slackPermalink}` : ''}`;
       ? `\n\n> 원본 Slack 대화: ${slackPermalink}`
       : '';
 
+    // 타겟 메시지가 있는지 확인
+    const hasTargetMessage = messages.some((m) => m.isTarget);
+    const targetMessageGuide = hasTargetMessage
+      ? `## 🎯 이슈 대상 메시지 안내 (매우 중요!)
+"[🎯 이슈 대상]"으로 표시된 메시지가 사용자가 이슈로 만들고 싶어하는 **핵심 내용**입니다.
+
+**반드시 지켜야 할 규칙:**
+- 제목과 설명은 **이슈 대상 메시지를 중심으로** 작성하세요
+- 다른 메시지들은 대상 메시지를 이해하는 데 필요한 맥락(context)입니다
+- 이슈 대상 메시지가 질문이면 → 질문을 이슈 제목으로
+- 이슈 대상 메시지가 요청이면 → 요청 내용을 이슈 제목으로
+- 이슈 대상 메시지가 답변이면 → 답변에서 파생된 후속 작업을 이슈로
+
+`
+      : '';
+
     const prompt = `다음 Slack 대화를 분석하여 Linear 이슈 정보를 생성하세요.
 
 ## 대화 내용
 ${conversationText}
 ${permalinkNote}
 
-${TITLE_RULES}
+${targetMessageGuide}${TITLE_RULES}
 
 ${DESCRIPTION_TEMPLATE}
 ${contextSection}

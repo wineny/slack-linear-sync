@@ -3,6 +3,8 @@ import { SlackClient } from '../../services/slack-client.js';
 export interface CollectedMessage {
   author: string;
   text: string;
+  ts: string;          // 메시지 타임스탬프
+  isTarget: boolean;   // 이모지가 달린 메시지인가?
 }
 
 export async function collectThreadMessages(
@@ -35,6 +37,8 @@ export async function collectThreadMessages(
         messages.push({
           author: authorName,
           text: msg.text,
+          ts: msg.ts,
+          isTarget: msg.ts === messageTs,  // 이모지가 달린 메시지인지 판별
         });
       }
     }
@@ -49,6 +53,8 @@ export async function collectThreadMessages(
         messages.push({
           author: authorName,
           text: msg.text,
+          ts: msg.ts,
+          isTarget: true,  // 단일 메시지는 항상 타겟
         });
       }
     }
