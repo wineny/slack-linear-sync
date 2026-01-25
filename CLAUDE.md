@@ -43,9 +43,30 @@ src/handlers/pposiraegi/
 src/handlers/emoji-issue/
 ├── index.ts              # export
 ├── handler.ts            # :이슈: → 이슈 생성
-├── thread-collector.ts   # 스레드 메시지 수집
+├── thread-collector.ts   # 스레드 메시지 수집 + 타겟 메시지 구분
 └── constants.ts          # 상수
 ```
+
+#### 🎯 타겟 메시지 구분 기능
+
+스레드에 여러 메시지가 있을 때, **이모지가 달린 특정 메시지**를 중심으로 이슈가 생성됨.
+
+**동작 방식**:
+```
+스레드 예시:
+1. A: "이거 어떻게 하면 좋을까?"
+2. B: "API 수정하면 될 것 같아"
+3. A: "좋은 아이디어! 근데 인증 문제가 있어"  ← :이슈: 이모지 달림
+4. B: "토큰 갱신 로직 추가하면 해결돼"
+
+결과:
+- 3번 메시지 = 이슈의 핵심 (🎯 이슈 대상으로 표시)
+- 1, 2, 4번 = 맥락(context)으로 활용
+```
+
+**구현 위치**:
+- `thread-collector.ts`: `CollectedMessage.isTarget` 필드로 타겟 메시지 표시
+- `ai-analyzer.ts`: AI 프롬프트에서 `[🎯 이슈 대상]` 마커 + 가이드 추가
 
 ---
 
