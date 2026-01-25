@@ -109,7 +109,7 @@ const DESCRIPTION_TEMPLATE = `## 설명 규칙 (불릿 포인트 필수!)
 // ========== Thread Analysis Types ==========
 
 export interface ThreadAnalysisContext {
-  projects: Array<{ id: string; name: string; description?: string }>;
+  projects: Array<{ id: string; name: string; description?: string; teamName?: string }>;
   users: Array<{ id: string; name: string }>;
 }
 
@@ -372,9 +372,22 @@ ${jsonFormat}`;
   private buildContextSection(context?: ThreadAnalysisContext): string {
     if (!context) return '';
 
-    const projectList = context.projects
-      ?.map((p) => `- "${p.name}" (ID: ${p.id})${p.description ? ` - ${p.description}` : ''}`)
-      .join('\n') || '(없음)';
+    // 팀별 프로젝트 그룹핑
+    const projectsByTeam: Record<string, typeof context.projects> = {};
+    for (const p of context.projects || []) {
+      const teamName = p.teamName || '기타';
+      if (!projectsByTeam[teamName]) projectsByTeam[teamName] = [];
+      projectsByTeam[teamName].push(p);
+    }
+
+    const projectList = Object.entries(projectsByTeam)
+      .map(([team, projects]) => {
+        const items = projects
+          .map(p => `  - "${p.name}" (ID: ${p.id})${p.description ? ` - ${p.description}` : ''}`)
+          .join('\n');
+        return `**[${team} 팀]**\n${items}`;
+      })
+      .join('\n\n') || '(없음)';
 
     const userList = context.users
       ?.map((u) => `- "${u.name}" (ID: ${u.id})`)
@@ -382,10 +395,26 @@ ${jsonFormat}`;
 
     return `
 
-## 추가 분석
-내용을 종합하여 가장 적합한 값을 선택하세요.
+## 프로젝트 선택 (필수!)
 
-### 사용 가능한 프로젝트
+**반드시 하나의 프로젝트 ID를 선택하세요.** 기준:
+
+1. **키워드 매칭**: 대화에 프로젝트명이나 관련 키워드가 있는가?
+   - "Linear", "이슈", "자동화" → Linear 관련 프로젝트
+   - "교육", "워크샵", "스터디", "강의" → 교육 관련 프로젝트
+   - "Rona", "로나", "챗봇" → Rona 프로젝트
+   - "랜딩", "마케팅", "콘텐츠" → 마케팅/콘텐츠 프로젝트
+   - "개발", "코딩", "바이브", "인프라" → 개발 관련 프로젝트
+
+2. **팀 컨텍스트**:
+   - 기술/개발/API → Product 팀 프로젝트
+   - 교육/운영/커뮤니티 → Education 팀 프로젝트
+
+3. **불확실하면**: 가장 포괄적인 프로젝트 선택 (예: "지피터스 커뮤니티 유지 및 관리")
+
+**중요**: projectId에 반드시 ID 값을 넣으세요!
+
+### 사용 가능한 프로젝트 (팀별)
 ${projectList}
 
 ### 사용 가능한 담당자

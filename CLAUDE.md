@@ -68,6 +68,26 @@ src/handlers/emoji-issue/
 - `thread-collector.ts`: `CollectedMessage.isTarget` 필드로 타겟 메시지 표시
 - `ai-analyzer.ts`: AI 프롬프트에서 `[🎯 이슈 대상]` 마커 + 가이드 추가
 
+#### 🎯 프로젝트 자동 추천 기능
+
+AI가 대화 내용을 분석하여 적절한 프로젝트를 자동 추천하고 Linear 이슈에 할당합니다.
+
+**동작 방식**:
+1. Linear API에서 `started` + `planned` 상태 프로젝트 조회
+2. AI에게 팀별로 그룹핑된 프로젝트 목록 전달
+3. AI가 키워드/맥락 기반으로 프로젝트 ID 선택
+4. `createIssue` 시 `projectId` 전달하여 할당
+
+**프로젝트 선택 기준** (AI 프롬프트):
+- 키워드 매칭: "Linear" → Linear 프로젝트, "교육" → 교육 프로젝트
+- 팀 컨텍스트: 개발/API → Product 팀, 교육/운영 → Education 팀
+- 불확실하면 가장 포괄적인 프로젝트 선택
+
+**관련 코드**:
+- `ai-analyzer.ts`: `buildContextSection()` - 팀별 프로젝트 그룹핑 + 선택 규칙
+- `linear-client.ts`: `getProjects()` - started/planned 프로젝트 조회, team name 포함
+- `handler.ts`: `createIssue({ projectId })` - 프로젝트 할당
+
 ---
 
 ## 📁 전체 프로젝트 구조

@@ -116,5 +116,6 @@ export interface LinearProject {
   id: string;
   name: string;
   description?: string;
-  teams: { nodes: Array<{ id: string }> };
+  state?: string; // "started" | "planned" | "paused" | "completed" | "canceled"
+  teams: { nodes: Array<{ id: string; name: string }> };
 }

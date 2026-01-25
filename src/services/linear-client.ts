@@ -74,6 +74,7 @@ export class LinearClient {
     assigneeId?: string;
     subscriberIds?: string[];
     priority?: number;
+    projectId?: string;
     // OAuth actor=app mode: display as "User (via App)"
     createAsUser?: string;
     displayIconUrl?: string;
@@ -87,6 +88,7 @@ export class LinearClient {
         assigneeId: params.assigneeId,
         subscriberIds: params.subscriberIds,
         priority: params.priority,
+        projectId: params.projectId,
       };
 
       // OAuth actor=app mode: add createAsUser and displayIconUrl
@@ -236,14 +238,23 @@ export class LinearClient {
       projects: { nodes: LinearProject[] };
     }>(`
       query {
-        projects(filter: { state: { eq: "started" } }) {
+        projects(
+          filter: {
+            or: [
+              { state: { eq: "started" } },
+              { state: { eq: "planned" } }
+            ]
+          }
+        ) {
           nodes {
             id
             name
             description
+            state
             teams {
               nodes {
                 id
+                name
               }
             }
           }

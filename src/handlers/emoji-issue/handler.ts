@@ -59,6 +59,7 @@ export async function handleEmojiIssue(
         id: p.id,
         name: p.name,
         description: p.description,
+        teamName: p.teams.nodes[0]?.name,
       })),
       users: linearUsers.map(u => ({
         id: u.id,
@@ -88,11 +89,23 @@ export async function handleEmojiIssue(
   const assigneeId = linearUserId || undefined;
 
   let teamId = env.LINEAR_TEAM_ID;
+  let matchedProject: typeof projects[0] | undefined;
+
+  console.log(`AI suggested projectId: ${analysisResult.suggestedProjectId || 'null'}`);
+
   if (analysisResult.suggestedProjectId) {
-    const matchedProject = projects.find(p => p.id === analysisResult.suggestedProjectId);
+    matchedProject = projects.find(p => p.id === analysisResult.suggestedProjectId);
+
     if (matchedProject?.teams.nodes[0]?.id) {
       teamId = matchedProject.teams.nodes[0].id;
+      console.log(`✓ Matched project: "${matchedProject.name}" (${matchedProject.teams.nodes[0].name})`);
+    } else if (matchedProject) {
+      console.warn(`Project "${matchedProject.name}" has no team, using default`);
+    } else {
+      console.warn(`Project ID "${analysisResult.suggestedProjectId}" not found in ${projects.length} projects`);
     }
+  } else {
+    console.log('No projectId from AI, using default Education team');
   }
 
   const issueResult = await linearClient.createIssue({
@@ -102,6 +115,7 @@ export async function handleEmojiIssue(
     stateId: env.LINEAR_DEFAULT_STATE_ID,
     assigneeId,
     priority: analysisResult.suggestedPriority || 3,
+    projectId: analysisResult.suggestedProjectId,
   });
 
   if (!issueResult.success) {
@@ -123,7 +137,7 @@ export async function handleEmojiIssue(
   const reactorInfo = await slackClient.getUserInfo(reactorUserId);
   const reactorName = reactorInfo.user?.real_name || reactorInfo.user?.name || 'Unknown';
 
-  const matchedProject = projects.find(p => p.id === analysisResult.suggestedProjectId);
+  // matchedProject는 위에서 이미 할당됨
   const projectLine = matchedProject ? `\n프로젝트: ${matchedProject.name}` : '';
 
   const replyText = `Linear 이슈가 생성되었습니다! 프로젝트/Cycle을 정확히 수정해주세요

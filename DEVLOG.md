@@ -113,12 +113,57 @@ Worker 배포하고 Slack App 설정도 해줘
 
 ---
 
+## 2026-01-22 (Day 2)
+
+### 8. OAuth 토큰 자동 갱신 구현
+
+```
+뽀시래기가 오후에 갑자기 동작 안 해. 오전엔 잘 됐는데
+```
+
+**문제 원인:**
+- Linear OAuth 토큰이 24시간 만료 정책으로 변경됨
+- access_token이 만료되어 API 호출 실패
+
+**Claude 작업:**
+- `src/utils/token-manager.ts` 신규 생성
+  - `isTokenValid()` - 현재 토큰 유효성 검사
+  - `refreshAccessToken()` - refresh_token으로 새 토큰 발급
+  - `getValidAccessToken()` - 만료 시 자동 갱신 후 반환
+- KV에 갱신된 토큰 자동 저장으로 다음 요청에서 재사용
+- 수동 재인증 없이 지속적 운영 가능
+
+---
+
+### 9. Emoji Issue Creator 구현
+
+```
+질문 채널 말고, 다른 채널에서도 이모지 눌러서 이슈 만들고 싶어.
+:이슈: 이모지 누르면 Linear 이슈 생성되게
+```
+
+**Claude 작업:**
+- 기존 뽀시래기 코드를 `src/handlers/pposiraegi/`로 분리
+- `src/handlers/emoji-issue/` 신규 생성
+  - `handler.ts` - :이슈: 리액션 → 이슈 생성 핸들러
+  - `thread-collector.ts` - 스레드 전체 메시지 수집
+- `src/services/ai-analyzer.ts` - 스레드 맥락 분석 함수 추가
+  - Linear 프로젝트/사용자 목록 참조하여 자동 매칭
+  - 스레드 전체 내용을 요약하여 제목/설명 생성
+- `:issue:` 및 `:이슈:` 이모지 둘 다 지원
+- 이모지 누른 사람이 Assignee로 자동 지정
+- AI가 내용 분석하여 프로젝트 자동 추천
+
+---
+
 ## 커밋 히스토리
 
 | 날짜 | 커밋 | 설명 |
 |------|------|------|
 | 01/18 | `0642b74` | feat: Slack → Linear 이슈 자동화 시스템 초기 커밋 |
 | 01/18 | `f2e9702` | feat: Slack-Linear 양방향 동기화 및 Slack 링크 자동 추가 |
+| 01/22 | `797e80b` | feat: OAuth 토큰 자동 갱신 (refresh token) 구현 |
+| 01/22 | `8763dfd` | feat: Emoji Issue Creator - :이슈: 이모지로 Linear 이슈 생성 |
 
 ---
 
@@ -134,6 +179,8 @@ Worker 배포하고 Slack App 설정도 해줘
 
 ## 주요 기능
 
+### 🐣 뽀시래기 (질문 채널 자동 이슈화)
+
 1. **Slack → Linear 이슈 자동 생성**
    - `00-ai개발-질문` 채널 메시지 감지
    - Claude Haiku로 제목/설명 자동 생성
@@ -144,10 +191,25 @@ Worker 배포하고 Slack App 설정도 해줘
    - 스레드 댓글에 달아도 원본 이슈 처리
 
 3. **Slack 스레드 → Linear 댓글 동기화**
-   - 스레드에 달린 댓글이 Linear 이슈 코멘트로 자동 추가
+   - Linear 공식 Slack 앱의 synced thread 기능 활용
    - 봇 메시지는 스킵
 
-4. **Slack URL 자동 포함**
+### 🎫 Emoji Issue Creator (어디서든 이슈 생성)
+
+4. **:이슈: 이모지 → Linear 이슈 생성**
+   - 봇이 초대된 모든 채널에서 동작
+   - 스레드 전체 맥락을 AI가 분석하여 요약
+   - 이모지 누른 사람이 Assignee로 자동 지정
+   - AI가 프로젝트 자동 추천
+
+### 🔧 인프라
+
+5. **OAuth 토큰 자동 갱신**
+   - Linear 24시간 토큰 만료 정책 대응
+   - refresh_token으로 자동 갱신
+   - 수동 재인증 없이 지속 운영
+
+6. **Slack URL 자동 포함**
    - Linear 이슈 description에 Slack 원본 메시지 링크 항상 포함
    - AI 응답과 무관하게 프로그래밍적으로 보장
 
@@ -156,21 +218,49 @@ Worker 배포하고 Slack App 설정도 해줘
 ## 아키텍처
 
 ```
-Slack 채널 메시지
-       ↓
-Slack Event API (message.channels)
-       ↓
-Cloudflare Worker (Hono)
-       ├─ 1. 서명 검증
-       ├─ 2. 채널 필터링 (00-ai개발-질문만)
-       ├─ 3. 스레드 응답 → Linear 댓글
-       ├─ 4. Claude Haiku로 제목/설명 생성
-       ├─ 5. @멘션 → Assignee 매핑
-       └─ 6. Linear 이슈 생성
-       ↓
-Slack 스레드에 이슈 링크 자동 답글
-
-:해결: 이모지 추가
-       ↓
-Linear 이슈 → Done 상태
+┌─────────────────────────────────────────────────────────────┐
+│                    Cloudflare Worker (Hono)                  │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Slack Event API                                             │
+│       │                                                      │
+│       ├── message.channels                                   │
+│       │        │                                             │
+│       │        └─→ 채널 필터링                               │
+│       │             ├─ 00-ai개발-질문 → 🐣 뽀시래기          │
+│       │             └─ 기타 채널 → 무시                      │
+│       │                                                      │
+│       └── reaction_added                                     │
+│                │                                             │
+│                ├─ :해결: → 뽀시래기 Done 처리                │
+│                └─ :이슈:/:issue: → 🎫 Emoji Issue Creator    │
+│                                                              │
+├─────────────────────────────────────────────────────────────┤
+│  🐣 뽀시래기 (pposiraegi/)                                   │
+│  ├─ question-handler.ts                                      │
+│  │   ├─ 메시지 → Claude Haiku 분석                          │
+│  │   ├─ @멘션 → Assignee 매핑                               │
+│  │   └─ Linear 이슈 생성 + Slack synced thread              │
+│  └─ done-handler.ts                                          │
+│      └─ :해결: → Linear 이슈 Done 상태                      │
+│                                                              │
+├─────────────────────────────────────────────────────────────┤
+│  🎫 Emoji Issue Creator (emoji-issue/)                       │
+│  ├─ thread-collector.ts                                      │
+│  │   └─ 스레드 전체 메시지 수집                             │
+│  └─ handler.ts                                               │
+│      ├─ Claude로 스레드 맥락 분석                           │
+│      ├─ 프로젝트 자동 추천                                   │
+│      ├─ 이모지 누른 사람 → Assignee                         │
+│      └─ Linear 이슈 생성                                    │
+│                                                              │
+├─────────────────────────────────────────────────────────────┤
+│  🔧 Utils (utils/)                                           │
+│  ├─ token-manager.ts                                         │
+│  │   └─ OAuth 토큰 자동 갱신 (24h 만료 대응)                │
+│  ├─ user-mapper.ts                                           │
+│  │   └─ Slack ↔ Linear 사용자 이메일 매핑                   │
+│  └─ signature.ts                                             │
+│      └─ Slack 서명 검증                                      │
+└─────────────────────────────────────────────────────────────┘
 ```
