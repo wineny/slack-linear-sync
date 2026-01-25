@@ -5,6 +5,50 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { AnalysisResult, LinearProject, LinearUser } from '../types/index.js';
 
+/**
+ * Extract JSON from text using balanced braces tracking
+ * Handles nested objects correctly
+ */
+function extractJSON(text: string): string | null {
+  const start = text.indexOf('{');
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = start; i < text.length; i++) {
+    const char = text[i];
+
+    if (escape) {
+      escape = false;
+      continue;
+    }
+
+    if (char === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+
+    if (char === '"' && !escape) {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (char === '{') depth++;
+    if (char === '}') {
+      depth--;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
 // ========== Shared Prompt Components (from linear-capture-worker) ==========
 
 const TITLE_RULES = `## 제목 규칙 (매우 중요!)
@@ -142,13 +186,27 @@ JSON만 출력하세요. 다른 텍스트는 포함하지 마세요.`;
         return { title: '', description: '', success: false, error: 'Unexpected response type' };
       }
 
-      // Parse JSON from response
-      const jsonMatch = content.text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
+      // Parse JSON from response using balanced braces
+      const jsonString = extractJSON(content.text);
+      if (!jsonString) {
+        console.error('Failed to extract JSON from AI response:', content.text);
         return { title: '', description: '', success: false, error: 'Failed to parse JSON' };
       }
 
-      const parsed = JSON.parse(jsonMatch[0]) as { title: string; description: string };
+      let parsed: { title: string; description: string };
+      try {
+        parsed = JSON.parse(jsonString);
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        console.error('Extracted JSON string:', jsonString);
+        console.error('Full AI response:', content.text);
+        return {
+          title: '',
+          description: '',
+          success: false,
+          error: parseError instanceof Error ? parseError.message : 'JSON parse error'
+        };
+      }
 
       // Ensure Slack permalink is always included in description
       let finalDescription = parsed.description;
@@ -245,17 +303,26 @@ ${jsonFormat}`;
         return { title: '', description: '', success: false, error: 'Unexpected response type' };
       }
 
-      const jsonMatch = content.text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
+      const jsonString = extractJSON(content.text);
+      if (!jsonString) {
+        console.error('Failed to extract JSON from AI response:', content.text);
         return { title: '', description: '', success: false, error: 'Failed to parse JSON' };
       }
 
-      const parsed = JSON.parse(jsonMatch[0]) as {
-        title: string;
-        description: string;
-        projectId?: string | null;
-        priority?: number;
-      };
+      let parsed: { title: string; description: string; projectId?: string | null; priority?: number };
+      try {
+        parsed = JSON.parse(jsonString);
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        console.error('Extracted JSON string:', jsonString);
+        console.error('Full AI response:', content.text);
+        return {
+          title: '',
+          description: '',
+          success: false,
+          error: parseError instanceof Error ? parseError.message : 'JSON parse error'
+        };
+      }
 
       let finalDescription = parsed.description;
       if (slackPermalink && !finalDescription.includes(slackPermalink)) {
