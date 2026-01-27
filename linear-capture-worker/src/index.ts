@@ -224,9 +224,10 @@ async function analyzeWithGemini(
   request: AnalysisRequest,
   apiKey: string
 ): Promise<AnalysisResult> {
-  const { images, context } = request;
+  const { images, context, instruction } = request;
 
-  const prompt = buildImagePrompt(images.length, context);
+  const contextWithInstruction = context ? { ...context, instruction } : { instruction };
+  const prompt = buildImagePrompt(images.length, contextWithInstruction);
 
   const imageParts = images.map((img) => ({
     inline_data: {
@@ -272,9 +273,10 @@ async function analyzeWithHaiku(
   request: AnalysisRequest,
   apiKey: string
 ): Promise<AnalysisResult> {
-  const { images, context } = request;
+  const { images, context, instruction } = request;
 
-  const prompt = buildImagePrompt(images.length, context);
+  const contextWithInstruction = context ? { ...context, instruction } : { instruction };
+  const prompt = buildImagePrompt(images.length, contextWithInstruction);
 
   const imageContent = images.map((img) => ({
     type: 'image' as const,
