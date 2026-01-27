@@ -75,6 +75,7 @@ export class LinearClient {
     subscriberIds?: string[];
     priority?: number;
     projectId?: string;
+    estimate?: number;
     // OAuth actor=app mode: display as "User (via App)"
     createAsUser?: string;
     displayIconUrl?: string;
@@ -90,6 +91,11 @@ export class LinearClient {
         priority: params.priority,
         projectId: params.projectId,
       };
+
+      // estimate는 1 이상일 때만 포함 (Linear API는 0을 거부함)
+      if (params.estimate && params.estimate > 0) {
+        input.estimate = params.estimate;
+      }
 
       // OAuth actor=app mode: add createAsUser and displayIconUrl
       if (params.createAsUser) {
@@ -250,6 +256,7 @@ export class LinearClient {
             id
             name
             description
+            content
             state
             teams {
               nodes {
