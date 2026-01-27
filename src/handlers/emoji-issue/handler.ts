@@ -1,9 +1,10 @@
-import type { Env, SlackReactionEvent } from '../../types/index.js';
+import type { Env, SlackReactionEvent, CachedProject } from '../../types/index.js';
 import { SlackClient } from '../../services/slack-client.js';
 import { LinearClient } from '../../services/linear-client.js';
 import { AIAnalyzer } from '../../services/ai-analyzer.js';
 import { mapSlackUserToLinear } from '../../utils/user-mapper.js';
 import { collectThreadMessages } from './thread-collector.js';
+import { getProjectsFromCache } from '../../services/project-cache.js';
 
 export async function handleEmojiIssue(
   event: SlackReactionEvent,
@@ -36,8 +37,9 @@ export async function handleEmojiIssue(
 
   console.log(`Collected ${messages.length} messages for analysis`);
 
+  // 캐시에서 프로젝트 조회 (linear-rona-bot이 Webhook으로 관리)
   const [projects, linearUsers] = await Promise.all([
-    linearClient.getProjects(),
+    getProjectsFromCache(env),
     linearClient.getUsers(),
   ]);
 
@@ -58,8 +60,9 @@ export async function handleEmojiIssue(
       projects: projects.map(p => ({
         id: p.id,
         name: p.name,
-        description: p.description,
-        teamName: p.teams.nodes[0]?.name,
+        keywords: p.keywords,
+        teamName: p.teamName,
+        recentIssueTitles: p.recentIssueTitles,
       })),
       users: linearUsers.map(u => ({
         id: u.id,
@@ -89,16 +92,16 @@ export async function handleEmojiIssue(
   const assigneeId = linearUserId || undefined;
 
   let teamId = env.LINEAR_TEAM_ID;
-  let matchedProject: typeof projects[0] | undefined;
+  let matchedProject: CachedProject | undefined;
 
   console.log(`AI suggested projectId: ${analysisResult.suggestedProjectId || 'null'}`);
 
   if (analysisResult.suggestedProjectId) {
     matchedProject = projects.find(p => p.id === analysisResult.suggestedProjectId);
 
-    if (matchedProject?.teams.nodes[0]?.id) {
-      teamId = matchedProject.teams.nodes[0].id;
-      console.log(`✓ Matched project: "${matchedProject.name}" (${matchedProject.teams.nodes[0].name})`);
+    if (matchedProject?.teamId) {
+      teamId = matchedProject.teamId;
+      console.log(`✓ Matched project: "${matchedProject.name}" (${matchedProject.teamName})`);
     } else if (matchedProject) {
       console.warn(`Project "${matchedProject.name}" has no team, using default`);
     } else {
@@ -116,6 +119,7 @@ export async function handleEmojiIssue(
     assigneeId,
     priority: analysisResult.suggestedPriority || 3,
     projectId: analysisResult.suggestedProjectId,
+    estimate: analysisResult.suggestedEstimate,
   });
 
   if (!issueResult.success) {
@@ -139,9 +143,10 @@ export async function handleEmojiIssue(
 
   // matchedProject는 위에서 이미 할당됨
   const projectLine = matchedProject ? `\n프로젝트: ${matchedProject.name}` : '';
+  const estimateLine = analysisResult.suggestedEstimate ? ` · ${analysisResult.suggestedEstimate}pt` : '';
 
   const replyText = `Linear 이슈가 생성되었습니다! 프로젝트/Cycle을 정확히 수정해주세요
-<${issueResult.issueUrl}|${issueResult.issueIdentifier}> ${analysisResult.title}${projectLine}`;
+<${issueResult.issueUrl}|${issueResult.issueIdentifier}> ${analysisResult.title}${estimateLine}${projectLine}`;
 
   await slackClient.postMessage(channel, replyText, threadTs || messageTs);
 }

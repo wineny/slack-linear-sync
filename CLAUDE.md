@@ -224,6 +224,42 @@ src/utils/*.ts
 
 ---
 
+## 🔄 linear-sync (프로젝트 캐시 동기화)
+
+Linear Desktop App의 로컬 IndexedDB 캐시에서 프로젝트 데이터를 추출하여 Cloudflare KV에 동기화합니다.
+
+### 스크립트 위치
+```
+scripts/linear-sync/
+├── export_projects.py    # 프로젝트 + 이슈 JSON 내보내기
+├── sync_to_kv.sh         # KV 업로드 wrapper
+├── com.linear-sync.plist # launchd 설정 (5분 주기)
+├── install_launchd.sh    # launchd 설치
+├── uninstall_launchd.sh  # launchd 제거
+└── test_sync.sh          # 로컬 테스트
+```
+
+### 사용법
+```bash
+# 수동 동기화
+./scripts/linear-sync/sync_to_kv.sh
+
+# 자동 동기화 설치 (5분 주기)
+./scripts/linear-sync/install_launchd.sh
+
+# 자동 동기화 제거
+./scripts/linear-sync/uninstall_launchd.sh
+
+# 로그 확인
+tail -f ~/Library/Logs/linear-sync/sync.log
+```
+
+### 동기화 데이터
+- 프로젝트 정보: id, name, teamId, teamName, state, keywords
+- 최근 이슈 제목 (최대 10개): AI 프롬프트에서 프로젝트 추천 정확도 향상에 활용
+
+---
+
 ## ⚠️ 주의사항
 
 1. **코드 분리 유지**: 뽀시래기와 Emoji Issue Creator 코드를 섞지 마세요

@@ -109,7 +109,13 @@ const DESCRIPTION_TEMPLATE = `## 설명 규칙 (불릿 포인트 필수!)
 // ========== Thread Analysis Types ==========
 
 export interface ThreadAnalysisContext {
-  projects: Array<{ id: string; name: string; description?: string; teamName?: string }>;
+  projects: Array<{
+    id: string;
+    name: string;
+    keywords?: string[];
+    teamName?: string;
+    recentIssueTitles?: string[];
+  }>;
   users: Array<{ id: string; name: string }>;
 }
 
@@ -119,6 +125,7 @@ export interface ThreadAnalysisResult {
   success: boolean;
   suggestedProjectId?: string;
   suggestedPriority?: number;
+  suggestedEstimate?: number;
   error?: string;
 }
 
@@ -275,7 +282,8 @@ ${slackPermalink ? `- Slack 스레드: ${slackPermalink}` : ''}`;
   "title": "제목",
   "description": "설명 (마크다운)",
   "projectId": "매칭되는 프로젝트 ID 또는 null",
-  "priority": 3
+  "priority": 3,
+  "estimate": 4
 }`
       : `{"title": "...", "description": "..."}`;
 
@@ -331,7 +339,7 @@ ${jsonFormat}`;
         return { title: '', description: '', success: false, error: 'Failed to parse JSON' };
       }
 
-      let parsed: { title: string; description: string; projectId?: string | null; priority?: number };
+      let parsed: { title: string; description: string; projectId?: string | null; priority?: number; estimate?: number };
       try {
         parsed = JSON.parse(jsonString);
       } catch (parseError) {
@@ -357,6 +365,7 @@ ${jsonFormat}`;
         success: true,
         suggestedProjectId: parsed.projectId || undefined,
         suggestedPriority: parsed.priority || 3,
+        suggestedEstimate: parsed.estimate ?? 4,
       };
     } catch (error) {
       console.error('AI thread analysis error:', error);
@@ -380,10 +389,27 @@ ${jsonFormat}`;
       projectsByTeam[teamName].push(p);
     }
 
+    const sanitizeTitle = (title: string): string => {
+      return title
+        .replace(/[\r\n]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/"/g, "'")
+        .slice(0, 80);
+    };
+
     const projectList = Object.entries(projectsByTeam)
       .map(([team, projects]) => {
         const items = projects
-          .map(p => `  - "${p.name}" (ID: ${p.id})${p.description ? ` - ${p.description}` : ''}`)
+          .map(p => {
+            const kw = p.keywords?.slice(0, 5).join(', ') || '';
+            const issues = p.recentIssueTitles
+              ?.slice(0, 5)
+              .map(t => sanitizeTitle(t))
+              .join('", "') || '';
+            const issueHint = issues ? `\n    최근 이슈: "${issues}"` : '';
+            return `  - "${p.name}" (${p.id}) [${kw}]${issueHint}`;
+          })
           .join('\n');
         return `**[${team} 팀]**\n${items}`;
       })
@@ -405,6 +431,7 @@ ${jsonFormat}`;
    - "Rona", "로나", "챗봇" → Rona 프로젝트
    - "랜딩", "마케팅", "콘텐츠" → 마케팅/콘텐츠 프로젝트
    - "개발", "코딩", "바이브", "인프라" → 개발 관련 프로젝트
+   - **외부 기업/B2B**: 회사명, "고객사", "파트너사", "기업교육", "출강", "제안서", "견적" → "[상시] B2B 교육 기획 & 운영"
 
 2. **팀 컨텍스트**:
    - 기술/개발/API → Product 팀 프로젝트
@@ -424,7 +451,15 @@ ${userList}
 - 1 (긴급): 에러, 장애, 긴급 요청
 - 2 (높음): 중요한 버그, 빠른 처리 필요
 - 3 (중간): 일반 요청, 개선사항 (기본값)
-- 4 (낮음): 사소한 개선, 나중에 해도 됨`;
+- 4 (낮음): 사소한 개선, 나중에 해도 됨
+
+### Estimate (복잡도) 기준 - 지수 스케일
+- 0: 없음 (단순 확인, 질문만)
+- 1: 매우 간단 (설정 변경, 오타 수정)
+- 2: 간단 (단일 파일 수정, 반나절 이내)
+- 4: 보통 (기본값, 1일 작업)
+- 8: 복잡 (여러 모듈 연동, 2-3일)
+- 16: 매우 복잡 (새 기능 개발, 1주일 이상)`;
   }
 
   static fallbackThreadAnalysis(

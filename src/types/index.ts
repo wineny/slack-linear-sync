@@ -119,3 +119,22 @@ export interface LinearProject {
   state?: string; // "started" | "planned" | "paused" | "completed" | "canceled"
   teams: { nodes: Array<{ id: string; name: string }> };
 }
+
+// 캐시된 프로젝트 (linear-sync 스크립트에서 KV로 동기화)
+export interface CachedProject {
+  id: string;
+  name: string;
+  teamId: string;
+  teamName: string;
+  state: string;
+  keywords: string[];
+  recentIssueTitles?: string[];
+}
+
+export interface ProjectCache {
+  version: number;
+  updatedAt: string;
+  projects: CachedProject[];
+}
+
+export const PROJECT_CACHE_KEY = 'PROJECT_CACHE:all';
