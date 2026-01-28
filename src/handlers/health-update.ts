@@ -28,7 +28,7 @@ async function getAISummary(
         messages: [
           {
             role: 'user',
-            content: `다음 작업들을 객관적으로 20자 이내로 요약해줘. 요약만 출력해: ${titles}`,
+            content: `아래 작업 목록을 하나의 핵심 문장으로 요약해. 50자 이내, 번호나 나열 없이 핵심만. 예시: "인증 시스템 구축 및 테스트"\n\n${titles}`,
           },
         ],
       }),
@@ -114,7 +114,7 @@ export async function handleHealthUpdate(
        const sections: string[] = [
          `📊 *${project.name}*`,
          '',
-         `*만든 결과* - ${madeSummary}`,
+          `*만든 결과 - ${madeSummary}*`,
        ];
 
        if (madeIssues.length > 0) {
@@ -126,7 +126,7 @@ export async function handleHealthUpdate(
        }
 
        sections.push('');
-       sections.push(`*만들 결과* - ${toMakeSummary}`);
+        sections.push(`*만들 결과 - ${toMakeSummary}*`);
 
        if (toMakeIssues.length > 0) {
          sections.push(
