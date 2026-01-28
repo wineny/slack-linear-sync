@@ -123,6 +123,7 @@ export class LinearClient {
               id
               identifier
               url
+              state
             }
           }
         }
@@ -269,7 +270,7 @@ export class LinearClient {
       }
     `);
 
-    return result.projects.nodes;
+    return result.projects.nodes.filter(p => p.state === 'started');
   }
 
   /**
@@ -289,10 +290,11 @@ export class LinearClient {
             name: string;
             slugId: string;
             url: string;
+            state: string;
           }>;
         };
       }>(`
-        query GetMyLeadProjects($userId: String!) {
+        query GetMyLeadProjects($userId: ID!) {
           projects(filter: {
             state: { eq: "started" }
             lead: { id: { eq: $userId } }
@@ -302,12 +304,13 @@ export class LinearClient {
               name
               slugId
               url
+              state
             }
           }
         }
       `, { userId: linearUserId });
 
-      return result.projects.nodes;
+      return result.projects.nodes.filter(p => p.state === 'started');
     } catch (error) {
       console.error('Error fetching lead projects:', error);
       return [];
@@ -347,6 +350,7 @@ export class LinearClient {
                 identifier
                 title
                 url
+              state
                 completedAt
                 state { name type }
                 cycle { number startsAt endsAt }
