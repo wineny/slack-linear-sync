@@ -109,7 +109,7 @@ export async function handleHealthUpdate(
          getAISummary(toMakeIssues, env.ANTHROPIC_API_KEY),
        ]);
 
-       const projectUpdateUrl = `https://linear.app/gpters/project/${project.slugId}/updates`;
+       const projectUpdateUrl = `${project.url}/updates`;
 
        const sections: string[] = [
          `📊 *${project.name}*`,
