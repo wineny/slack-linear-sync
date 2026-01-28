@@ -59,8 +59,14 @@ function buildInstructionSection(instruction?: string): string {
   if (!instruction || instruction.trim() === '') return '';
   return `
 
-## 사용자 요청
-${instruction.trim()}`;
+---
+## ⚠️ 사용자 지시사항 (최우선 반영 필수!)
+다음 내용을 반드시 제목과 설명에 반영하세요:
+
+> ${instruction.trim()}
+
+이 지시사항이 있으면 스크린샷 내용보다 우선하여 이슈를 작성하세요.
+---`;
 }
 
 function buildContextSection(context?: PromptContext): string {
@@ -70,10 +76,6 @@ function buildContextSection(context?: PromptContext): string {
     ?.map((p) => `- "${p.name}" (ID: ${p.id})${p.description ? ` - ${p.description}` : ''}`)
     .join('\n') || '(없음)';
 
-  const userList = context.users
-    ?.map((u) => `- "${u.name}" (ID: ${u.id})`)
-    .join('\n') || '(없음)';
-
   return `
 
 ## 추가 분석
@@ -81,9 +83,6 @@ function buildContextSection(context?: PromptContext): string {
 
 ### 사용 가능한 프로젝트
 ${projectList}
-
-### 사용 가능한 담당자
-${userList}
 
 ### 우선순위 기준
 - 1 (긴급): 에러, 장애, 긴급 요청
@@ -105,7 +104,6 @@ function buildJsonFormat(hasContext: boolean): string {
   "title": "제목",
   "description": "설명 (마크다운)",
   "projectId": "매칭되는 프로젝트 ID 또는 null",
-  "assigneeId": "매칭되는 담당자 ID 또는 null",
   "priority": 3,
   "estimate": 2
 }`;
@@ -119,8 +117,22 @@ export function buildImagePrompt(imageCount: number, context?: PromptContext): s
   const contextSection = buildContextSection(context);
   const jsonFormat = buildJsonFormat(!!context);
 
+  // instruction이 있으면 프롬프트 최상단에 배치하여 가중치 강화
+  if (instructionSection) {
+    return `${instructionSection}
+
+${imageRef} 분석하여 Linear 이슈 정보를 생성하세요.
+
+${TITLE_RULES}
+
+${DESCRIPTION_TEMPLATE}
+${contextSection}
+
+## JSON 응답 형식 (마크다운 코드블록 없이):
+${jsonFormat}`;
+  }
+
   return `${imageRef} 분석하여 Linear 이슈 정보를 생성하세요.
-${instructionSection}
 
 ${TITLE_RULES}
 

@@ -1,0 +1,20 @@
+name = "linear-capture-ai"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# R2 버킷 바인딩
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "linear-captures"
+
+# 환경변수
+[vars]
+R2_PUBLIC_URL = "https://pub-235a750bab114df78449a6fb9613e208.r2.dev"
+
+# Secrets (wrangler secret으로 설정)
+# wrangler secret put GEMINI_API_KEY
+# wrangler secret put ANTHROPIC_API_KEY
+# Worker를 미국 서부 리전에서 실행 (API 지역 제한 회피)
+[placement]
+mode = "smart"
+hint = "wnam"
