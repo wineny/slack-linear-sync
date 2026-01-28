@@ -350,7 +350,6 @@ export class LinearClient {
                 identifier
                 title
                 url
-              state
                 completedAt
                 state { name type }
                 cycle { number startsAt endsAt }
