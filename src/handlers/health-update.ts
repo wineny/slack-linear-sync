@@ -4,6 +4,45 @@ import { mapSlackUserToLinear } from '../utils/user-mapper.js';
 import { SlackClient } from '../services/slack-client.js';
 
 /**
+ * Get AI summary of issues using Anthropic API
+ */
+async function getAISummary(
+  issues: Array<{ title: string }>,
+  apiKey: string
+): Promise<string> {
+  if (issues.length === 0) return '없음';
+
+  const titles = issues.map((i) => i.title).join(', ');
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-3-haiku-20240307',
+        max_tokens: 100,
+        messages: [
+          {
+            role: 'user',
+            content: `다음 작업들을 객관적으로 20자 이내로 요약해줘. 요약만 출력해: ${titles}`,
+          },
+        ],
+      }),
+    });
+
+    const data = await response.json() as { content?: Array<{ text: string }> };
+    return data.content?.[0]?.text?.trim() || '작업 진행 중';
+  } catch (error) {
+    console.error('AI summary error:', error);
+    return '작업 진행 중';
+  }
+}
+
+/**
  * Handle health update request from Slack
  * Fetches projects where user is lead and categorizes issues by status
  */
@@ -42,88 +81,68 @@ export async function handleHealthUpdate(
     // Calculate week start (Monday 00:00 KST)
     const weekStart = getWeekStart();
 
-    // Fetch issues for each project and format message
-    const projectSections: string[] = [];
+     // Fetch issues for each project and format message
+     const projectSections: string[] = [];
 
-    for (const project of projects) {
-      const issues = await linearClient.getProjectIssuesForUpdate(
-        project.id,
-        weekStart
-      );
+     for (const project of projects) {
+       const issues = await linearClient.getProjectIssuesForUpdate(
+         project.id,
+         weekStart
+       );
 
-      const sections: string[] = [];
+       // 만든 결과 = Done + In Review
+       const madeIssues = [...issues.done, ...issues.inReview];
+       // 만들 결과 = In Progress + Next Cycle
+       const toMakeIssues = [
+         ...issues.inProgress,
+         ...issues.nextCycle.map((issue) => ({
+           id: issue.id,
+           identifier: issue.identifier,
+           title: issue.title,
+           url: issue.url,
+         })),
+       ];
 
-      // Done section
-      if (issues.done.length > 0) {
-        sections.push(
-          '*✅ 이번 주 완료 (Done)*',
-          ...issues.done.map(
-            (issue) => `• <${issue.url}|${issue.identifier}: ${issue.title}>`
-          )
-        );
-      }
+       // AI 요약 병렬 실행
+       const [madeSummary, toMakeSummary] = await Promise.all([
+         getAISummary(madeIssues, env.ANTHROPIC_API_KEY),
+         getAISummary(toMakeIssues, env.ANTHROPIC_API_KEY),
+       ]);
 
-      // In Review section
-      if (issues.inReview.length > 0) {
-        sections.push(
-          '*🔍 리뷰 중 (In Review)*',
-          ...issues.inReview.map(
-            (issue) => `• <${issue.url}|${issue.identifier}: ${issue.title}>`
-          )
-        );
-      }
+       const projectUpdateUrl = `https://linear.app/gpters/project/${project.slugId}/updates`;
 
-      // In Progress section
-      if (issues.inProgress.length > 0) {
-        sections.push(
-          '*🚀 진행 중 (In Progress)*',
-          ...issues.inProgress.map(
-            (issue) => `• <${issue.url}|${issue.identifier}: ${issue.title}>`
-          )
-        );
-      }
+       const sections: string[] = [
+         `📊 *${project.name}*`,
+         '',
+         `*만든 결과* - ${madeSummary}`,
+       ];
 
-      // Next Cycle section
-      if (issues.nextCycle.length > 0) {
-        sections.push(
-          '*📋 다음 Cycle 예정*',
-          ...issues.nextCycle.map(
-            (issue) =>
-              `• <${issue.url}|${issue.identifier}: ${issue.title}> - Cycle ${issue.cycle.number}`
-          )
-        );
-      }
+       if (madeIssues.length > 0) {
+         sections.push(
+           ...madeIssues.map(
+             (issue) => `• <${issue.url}|${issue.identifier}: ${issue.title}>`
+           )
+         );
+       }
 
-      // Build project section
-      if (sections.length > 0) {
-        const projectUpdateUrl = `https://linear.app/gpters/project/${project.slugId}/updates`;
-        const projectSection = [
-          `📊 *${project.name}* 주간 현황`,
-          '',
-          ...sections,
-          '',
-          `👉 <${projectUpdateUrl}|Project Update 작성하기>`,
-          '',
-          '---',
-        ].join('\n');
+       sections.push('');
+       sections.push(`*만들 결과* - ${toMakeSummary}`);
 
-        projectSections.push(projectSection);
-      } else {
-        // All sections empty
-        const projectUpdateUrl = `https://linear.app/gpters/project/${project.slugId}/updates`;
-        const projectSection = [
-          `📊 *${project.name}* 주간 현황`,
-          '',
-          '이슈 없음',
-          '',
-          `👉 <${projectUpdateUrl}|Project Update 작성하기>`,
-          '',
-          '---',
-        ].join('\n');
+       if (toMakeIssues.length > 0) {
+         sections.push(
+           ...toMakeIssues.map(
+             (issue) => `• <${issue.url}|${issue.identifier}: ${issue.title}>`
+           )
+         );
+       }
 
-        projectSections.push(projectSection);
-      }
-    }
+       sections.push('');
+       sections.push(`👉 <${projectUpdateUrl}|Project Update 작성하기>`);
+       sections.push('');
+       sections.push('---');
+
+       projectSections.push(sections.join('\n'));
+     }
 
     const formattedMessage = projectSections.join('\n');
 
