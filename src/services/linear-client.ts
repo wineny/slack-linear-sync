@@ -123,7 +123,7 @@ export class LinearClient {
               id
               identifier
               url
-              state
+              state { name }
             }
           }
         }
