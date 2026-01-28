@@ -8,6 +8,7 @@
 import { Hono } from 'hono';
 import { verifySlackSignature } from './utils/signature.js';
 import { handleSlackEvent } from './handlers/slack-events.js';
+import { handleHealthUpdate } from './handlers/health-update.js';
 import { getValidAccessToken } from './utils/token-manager.js';
 import type { Env, SlackEventPayload } from './types/index.js';
 
@@ -51,6 +52,47 @@ app.post('/slack/events', async (c) => {
 
   // Handle the event
   return handleSlackEvent(payload, env, c.executionCtx);
+});
+
+// Slack Slash Command endpoint
+app.post('/slack/command', async (c) => {
+  const env = c.env;
+  const rawBody = await c.req.text();
+
+  // Verify Slack signature
+  const signature = c.req.header('X-Slack-Signature');
+  const timestamp = c.req.header('X-Slack-Request-Timestamp');
+
+  const isValid = await verifySlackSignature(
+    env.SLACK_SIGNING_SECRET,
+    signature ?? null,
+    timestamp ?? null,
+    rawBody
+  );
+
+  if (!isValid) {
+    console.error('Invalid Slack signature');
+    return c.json({ error: 'Invalid signature' }, 401);
+  }
+
+  // Parse URL-encoded body
+  const params = new URLSearchParams(rawBody);
+  const command = params.get('command');
+  const userId = params.get('user_id');
+  const responseUrl = params.get('response_url');
+
+  if (command === '/health-update') {
+    // Immediate response (3-second timeout requirement)
+    c.executionCtx.waitUntil(
+      handleHealthUpdate({ userId: userId!, responseUrl: responseUrl! }, env)
+    );
+    return c.json({
+      response_type: 'ephemeral',
+      text: '📊 프로젝트 현황을 가져오는 중...'
+    });
+  }
+
+  return c.json({ error: 'Unknown command' }, 400);
 });
 
 // Debug endpoint (remove in production)

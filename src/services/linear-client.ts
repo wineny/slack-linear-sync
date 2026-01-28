@@ -272,6 +272,148 @@ export class LinearClient {
     return result.projects.nodes;
   }
 
+  /**
+   * Get started projects where the user is the lead
+   */
+  async getMyLeadProjects(linearUserId: string): Promise<Array<{
+    id: string;
+    name: string;
+    slugId: string;
+    url: string;
+  }>> {
+    try {
+      const result = await this.query<{
+        projects: {
+          nodes: Array<{
+            id: string;
+            name: string;
+            slugId: string;
+            url: string;
+          }>;
+        };
+      }>(`
+        query GetMyLeadProjects($userId: String!) {
+          projects(filter: {
+            state: { eq: "started" }
+            lead: { id: { eq: $userId } }
+          }) {
+            nodes {
+              id
+              name
+              slugId
+              url
+            }
+          }
+        }
+      `, { userId: linearUserId });
+
+      return result.projects.nodes;
+    } catch (error) {
+      console.error('Error fetching lead projects:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get project issues categorized by status
+   */
+  async getProjectIssuesForUpdate(projectId: string, weekStart: Date): Promise<{
+    done: Array<{ id: string; identifier: string; title: string; url: string }>;
+    inReview: Array<{ id: string; identifier: string; title: string; url: string }>;
+    inProgress: Array<{ id: string; identifier: string; title: string; url: string }>;
+    nextCycle: Array<{ id: string; identifier: string; title: string; url: string; cycle: { number: number } }>;
+  }> {
+    try {
+      const result = await this.query<{
+        project: {
+          issues: {
+            nodes: Array<{
+              id: string;
+              identifier: string;
+              title: string;
+              url: string;
+              completedAt: string | null;
+              state: { name: string; type: string };
+              cycle: { number: number; startsAt: string; endsAt: string } | null;
+            }>;
+          };
+        };
+      }>(`
+        query GetProjectIssues($projectId: String!) {
+          project(id: $projectId) {
+            issues(first: 100) {
+              nodes {
+                id
+                identifier
+                title
+                url
+                completedAt
+                state { name type }
+                cycle { number startsAt endsAt }
+              }
+            }
+          }
+        }
+      `, { projectId });
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const done: Array<{ id: string; identifier: string; title: string; url: string }> = [];
+      const inReview: Array<{ id: string; identifier: string; title: string; url: string }> = [];
+      const inProgress: Array<{ id: string; identifier: string; title: string; url: string }> = [];
+      const nextCycle: Array<{ id: string; identifier: string; title: string; url: string; cycle: { number: number } }> = [];
+
+      for (const issue of result.project.issues.nodes) {
+        const issueInfo = {
+          id: issue.id,
+          identifier: issue.identifier,
+          title: issue.title,
+          url: issue.url,
+        };
+
+        // Done: completed this week
+        if (issue.completedAt) {
+          const completedDate = new Date(issue.completedAt);
+          completedDate.setHours(0, 0, 0, 0);
+          if (completedDate >= weekStart) {
+            done.push(issueInfo);
+            continue;
+          }
+        }
+
+        // In Review
+        if (issue.state.type === 'started' && issue.state.name === 'In Review') {
+          inReview.push(issueInfo);
+          continue;
+        }
+
+        // In Progress
+        if (issue.state.type === 'started' && issue.state.name === 'In Progress') {
+          inProgress.push(issueInfo);
+          continue;
+        }
+
+        // Next Cycle
+        if (issue.cycle) {
+          const cycleStartDate = new Date(issue.cycle.startsAt);
+          cycleStartDate.setHours(0, 0, 0, 0);
+          if (cycleStartDate > today) {
+            nextCycle.push({
+              ...issueInfo,
+              cycle: { number: issue.cycle.number },
+            });
+          }
+        }
+      }
+
+      return { done, inReview, inProgress, nextCycle };
+    } catch (error) {
+      console.error('Error fetching project issues:', error);
+      return { done: [], inReview: [], inProgress: [], nextCycle: [] };
+    }
+  }
+
   async linkSlackThread(
     issueId: string,
     slackUrl: string,
