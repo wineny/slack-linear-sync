@@ -548,6 +548,8 @@ export class LinearClient {
 
    /**
     * Get project updates created after a specific date
+    * Note: Linear API's project.projectUpdates doesn't support filter argument,
+    * so we fetch all recent updates and filter by date in JavaScript
     */
    async getProjectUpdates(projectId: string, since: Date): Promise<Array<{
      id: string;
@@ -576,13 +578,9 @@ export class LinearClient {
            };
          };
        }>(`
-         query GetProjectUpdates($projectId: String!, $since: DateTime!) {
+         query GetProjectUpdates($projectId: String!) {
            project(id: $projectId) {
-             projectUpdates(
-               first: 10
-               filter: { createdAt: { gte: $since } }
-               orderBy: createdAt
-             ) {
+             projectUpdates(first: 20) {
                nodes {
                  id
                  body
@@ -596,9 +594,13 @@ export class LinearClient {
              }
            }
          }
-       `, { projectId, since: since.toISOString() });
+       `, { projectId });
 
-       return result.project.projectUpdates.nodes;
+       // Filter by date in JavaScript since Linear API doesn't support filter on projectUpdates
+       const sinceTime = since.getTime();
+       return result.project.projectUpdates.nodes.filter(
+         (update) => new Date(update.createdAt).getTime() >= sinceTime
+       );
      } catch (error) {
        console.error('Error fetching project updates:', error);
        return [];
