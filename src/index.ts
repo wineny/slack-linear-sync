@@ -8,7 +8,7 @@
 import { Hono } from 'hono';
 import { verifySlackSignature } from './utils/signature.js';
 import { handleSlackEvent } from './handlers/slack-events.js';
-import { handleHealthUpdate } from './handlers/health-update.js';
+import { handleHealthUpdate } from './handlers/project-update.js';
 import { handleInitiativeUpdate } from './handlers/initiative-update.js';
 import { getValidAccessToken } from './utils/token-manager.js';
 import { LinearClient } from './services/linear-client.js';
@@ -83,7 +83,7 @@ app.post('/slack/command', async (c) => {
   const userId = params.get('user_id');
   const responseUrl = params.get('response_url');
 
-  if (command === '/health-update') {
+  if (command === '/project-update') {
     // Immediate response (3-second timeout requirement)
     c.executionCtx.waitUntil(
       handleHealthUpdate({ userId: userId!, responseUrl: responseUrl! }, env)
