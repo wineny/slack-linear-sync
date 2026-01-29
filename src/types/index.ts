@@ -144,3 +144,21 @@ export interface ProjectCache {
 }
 
 export const PROJECT_CACHE_KEY = 'PROJECT_CACHE:all';
+
+export interface LinearInitiative {
+  id: string;
+  name: string;
+  description?: string;
+  url: string;
+}
+
+export interface LinearProjectUpdate {
+  id: string;
+  body: string;
+  createdAt: string;
+  url: string;
+  user: {
+    id: string;
+    name: string;
+  };
+}

@@ -419,48 +419,189 @@ export class LinearClient {
     }
   }
 
-  async linkSlackThread(
-    issueId: string,
-    slackUrl: string,
-    syncToCommentThread: boolean = true
-  ): Promise<{ success: boolean; error?: string }> {
-    try {
-      const result = await this.query<{
-        attachmentLinkSlack: {
-          success: boolean;
-          attachment?: {
-            id: string;
-          };
-        };
-      }>(
-        `
-        mutation AttachmentLinkSlack($issueId: String!, $url: String!, $syncToCommentThread: Boolean) {
-          attachmentLinkSlack(issueId: $issueId, url: $url, syncToCommentThread: $syncToCommentThread) {
-            success
-            attachment {
-              id
-            }
-          }
-        }
-      `,
-        {
-          issueId,
-          url: slackUrl,
-          syncToCommentThread,
-        }
-      );
+   async linkSlackThread(
+     issueId: string,
+     slackUrl: string,
+     syncToCommentThread: boolean = true
+   ): Promise<{ success: boolean; error?: string }> {
+     try {
+       const result = await this.query<{
+         attachmentLinkSlack: {
+           success: boolean;
+           attachment?: {
+             id: string;
+           };
+         };
+       }>(
+         `
+         mutation AttachmentLinkSlack($issueId: String!, $url: String!, $syncToCommentThread: Boolean) {
+           attachmentLinkSlack(issueId: $issueId, url: $url, syncToCommentThread: $syncToCommentThread) {
+             success
+             attachment {
+               id
+             }
+           }
+         }
+       `,
+         {
+           issueId,
+           url: slackUrl,
+           syncToCommentThread,
+         }
+       );
 
-      if (result.attachmentLinkSlack.success) {
-        console.log(`Linked Slack thread to issue ${issueId}`);
-        return { success: true };
-      }
+       if (result.attachmentLinkSlack.success) {
+         console.log(`Linked Slack thread to issue ${issueId}`);
+         return { success: true };
+       }
 
-      return { success: false, error: 'Slack link failed' };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
-  }
+       return { success: false, error: 'Slack link failed' };
+     } catch (error) {
+       return {
+         success: false,
+         error: error instanceof Error ? error.message : 'Unknown error',
+       };
+     }
+   }
+
+   /**
+    * Get initiatives where the user is owner/lead
+    */
+   async getMyLeadInitiatives(linearUserId: string): Promise<Array<{
+     id: string;
+     name: string;
+     description: string | null;
+     url: string;
+   }>> {
+     try {
+       const result = await this.query<{
+         initiatives: {
+           nodes: Array<{
+             id: string;
+             name: string;
+             description: string | null;
+             url: string;
+           }>;
+         };
+       }>(`
+         query GetMyLeadInitiatives($userId: ID!) {
+           initiatives(filter: { owner: { id: { eq: $userId } } }) {
+             nodes {
+               id
+               name
+               description
+               url
+             }
+           }
+         }
+       `, { userId: linearUserId });
+
+       return result.initiatives.nodes;
+     } catch (error) {
+       console.error('Error fetching lead initiatives:', error);
+       return [];
+     }
+   }
+
+   /**
+    * Get projects under an initiative
+    */
+   async getInitiativeProjects(initiativeId: string): Promise<Array<{
+     id: string;
+     name: string;
+     url: string;
+     state: string;
+   }>> {
+     try {
+       const result = await this.query<{
+         initiative: {
+           projects: {
+             nodes: Array<{
+               id: string;
+               name: string;
+               url: string;
+               state: string;
+             }>;
+           };
+         };
+       }>(`
+         query GetInitiativeProjects($initiativeId: String!) {
+           initiative(id: $initiativeId) {
+             projects {
+               nodes {
+                 id
+                 name
+                 url
+                 state
+               }
+             }
+           }
+         }
+       `, { initiativeId });
+
+       return result.initiative.projects.nodes;
+     } catch (error) {
+       console.error('Error fetching initiative projects:', error);
+       return [];
+     }
+   }
+
+   /**
+    * Get project updates created after a specific date
+    */
+   async getProjectUpdates(projectId: string, since: Date): Promise<Array<{
+     id: string;
+     body: string;
+     createdAt: string;
+     url: string;
+     user: {
+       id: string;
+       name: string;
+     };
+   }>> {
+     try {
+       const result = await this.query<{
+         project: {
+           projectUpdates: {
+             nodes: Array<{
+               id: string;
+               body: string;
+               createdAt: string;
+               url: string;
+               user: {
+                 id: string;
+                 name: string;
+               };
+             }>;
+           };
+         };
+       }>(`
+         query GetProjectUpdates($projectId: String!, $since: DateTime!) {
+           project(id: $projectId) {
+             projectUpdates(
+               first: 10
+               filter: { createdAt: { gte: $since } }
+               orderBy: createdAt
+             ) {
+               nodes {
+                 id
+                 body
+                 createdAt
+                 url
+                 user {
+                   id
+                   name
+                 }
+               }
+             }
+           }
+         }
+       `, { projectId, since: since.toISOString() });
+
+       return result.project.projectUpdates.nodes;
+     } catch (error) {
+       console.error('Error fetching project updates:', error);
+       return [];
+     }
+   }
 }
