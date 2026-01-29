@@ -112,6 +112,8 @@ export interface ThreadAnalysisContext {
   projects: Array<{
     id: string;
     name: string;
+    description?: string;
+    content?: string;
     keywords?: string[];
     teamName?: string;
     recentIssueTitles?: string[];
@@ -403,12 +405,17 @@ ${jsonFormat}`;
         const items = projects
           .map(p => {
             const kw = p.keywords?.slice(0, 5).join(', ') || '';
+            const summary = p.description || '';
+            const contentPreview = p.content?.slice(0, 400) || '';
+            const projectInfo = summary || contentPreview 
+              ? `\n    ${summary}${summary && contentPreview ? ' | ' : ''}${contentPreview.replace(/\n/g, ' ').trim()}`
+              : '';
             const issues = p.recentIssueTitles
               ?.slice(0, 5)
               .map(t => sanitizeTitle(t))
               .join('", "') || '';
             const issueHint = issues ? `\n    최근 이슈: "${issues}"` : '';
-            return `  - "${p.name}" (${p.id}) [${kw}]${issueHint}`;
+            return `  - "${p.name}" (${p.id}) [${kw}]${projectInfo}${issueHint}`;
           })
           .join('\n');
         return `**[${team} 팀]**\n${items}`;

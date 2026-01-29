@@ -246,9 +246,13 @@ def export_projects(output_path: Optional[str] = None) -> dict[str, Any]:
         keywords = extract_keywords(name, description)
         recent_issues = get_recent_issues(project_id, issues, states)
         
+        content = project.get("content") or ""
+        
         cached_projects.append({
             "id": project_id,
             "name": name,
+            "description": description or "",
+            "content": content[:400] if content else "",
             "teamId": team_id,
             "teamName": team_name,
             "state": state,

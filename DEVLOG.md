@@ -156,6 +156,100 @@ Worker 배포하고 Slack App 설정도 해줘
 
 ---
 
+## 2026-01-27 (Day 3)
+
+### 10. Linear 로컬 캐시 연동으로 프로젝트 추천 정확도 향상
+
+```
+linear-mcp-fast가 Linear Desktop App의 로컬 캐시를 읽어오는 기능이 있는데,
+이걸 활용해서 프로젝트 + 최근 이슈 제목까지 AI에게 전달하면 추천 정확도가 높아지지 않을까?
+```
+
+**Claude 작업:**
+- `scripts/linear-sync/` 디렉토리 생성
+- `export_projects.py`: Linear Desktop IndexedDB에서 프로젝트 데이터 추출
+  - 프로젝트 기본 정보 (id, name, teamId, teamName, state, keywords)
+  - 프로젝트별 최근 10개 이슈 제목 (`recentIssueTitles`)
+  - started/planned 상태 프로젝트만 필터링
+- `sync_to_kv.sh`: Cloudflare KV에 JSON 업로드
+- `com.linear-sync.plist`: macOS launchd 5분 주기 자동 동기화
+- `install_launchd.sh`, `uninstall_launchd.sh`: 설치/제거 스크립트
+- `test_sync.sh`: 로컬 테스트 스크립트
+
+**TypeScript 수정:**
+- `src/types/index.ts`: `CachedProject`에 `recentIssueTitles?: string[]` 추가
+- `src/services/ai-analyzer.ts`: 
+  - `ThreadAnalysisContext`에 `recentIssueTitles` 필드 추가
+  - `buildContextSection()`에서 최근 이슈 제목 렌더링
+- `src/handlers/emoji-issue/handler.ts`: `recentIssueTitles` 전달
+
+**정확도 향상 효과:**
+- 391개 추가 매칭 가능 키워드 (이슈 제목에만 있는 단어)
+- "원티드 아웃바운드" → 채용 프로젝트 매칭 (기존엔 불가)
+- "Linear MCP" → Linear 자동화 프로젝트 매칭 (기존엔 불가)
+- "오픈채팅방" → n8n 워크플로우 프로젝트 매칭 (기존엔 불가)
+
+**아키텍처:**
+```
+┌─────────────────┐     5분마다      ┌─────────────────┐
+│ Linear Desktop  │ ──────────────→ │ Cloudflare KV   │
+│ (IndexedDB)     │  launchd 동기화  │ PROJECT_CACHE   │
+└─────────────────┘                  └────────┬────────┘
+                                              │
+                                              ▼
+┌─────────────────┐     KV 읽기      ┌─────────────────┐
+│ Slack :이슈:    │ ──────────────→ │ Worker          │
+│ 이모지 클릭     │                  │ AI 프롬프트에   │
+└─────────────────┘                  │ 이슈 제목 포함  │
+                                     └─────────────────┘
+```
+
+---
+
+### 11. 프로젝트 description + content 필드 추가로 AI 매칭 정확도 향상
+
+```
+지금 리니어 이슈 생성할 때 프로젝트명, 최신 이슈 10개 말고
+프로젝트의 description도 활용하고 있어?
+```
+
+**현황 분석:**
+- Linear 프로젝트에는 두 가지 설명 필드가 존재
+  - `description`: 한 줄 요약 (평균 35자)
+  - `content`: 전체 계획 문서 (## 0. 이슈 ~ ## 4. 관련 링크, 평균 1,000~2,000자)
+- 기존에는 둘 다 AI 프롬프트에 전달하지 않음
+- `keywords`는 `description`에서 추출했지만 원문은 버리고 있었음
+
+**Claude 작업:**
+- `linear-client.ts`: GraphQL에 `content` 필드 추가
+- `types/index.ts`: `LinearProject`, `CachedProject`에 `description`, `content` 추가
+- `export_projects.py`: 캐시에 `description`, `content[:400]` 저장
+- `ai-analyzer.ts`: 
+  - `ThreadAnalysisContext`에 `description`, `content` 추가
+  - `buildContextSection()`에서 프로젝트 정보 렌더링 개선
+- `handler.ts`: AI context에 `description`, `content` 전달
+
+**토큰 비용 분석:**
+- started + planned 프로젝트 = 25개
+- description: 평균 35자, 최대 91자
+- content: 첫 400자만 사용
+- 25개 × 450자 = ~11,000자 (토큰 ~3,000) → Haiku 기준 무리 없음
+
+**미해결 이슈:**
+- Linear Desktop App의 로컬 IndexedDB 캐시에는 `content` 필드가 없음
+- 옵션 1: Linear API 직접 호출로 전환
+- 옵션 2: 하이브리드 (캐시 + API fallback)
+- → 다음 세션에서 결정 예정
+
+**AI 프롬프트 포맷 개선:**
+```
+- "Linear 업무 분석 자동화" (id) [키워드들]
+    Linear 이슈 기반 업무 패턴 분석... | ## 0. 이슈 * Linear에 이슈가 쌓여도...
+    최근 이슈: "이슈1", "이슈2"...
+```
+
+---
+
 ## 커밋 히스토리
 
 | 날짜 | 커밋 | 설명 |
@@ -164,6 +258,7 @@ Worker 배포하고 Slack App 설정도 해줘
 | 01/18 | `f2e9702` | feat: Slack-Linear 양방향 동기화 및 Slack 링크 자동 추가 |
 | 01/22 | `797e80b` | feat: OAuth 토큰 자동 갱신 (refresh token) 구현 |
 | 01/22 | `8763dfd` | feat: Emoji Issue Creator - :이슈: 이모지로 Linear 이슈 생성 |
+| 01/27 | `8bfcac6` | feat: Linear 로컬 캐시 연동으로 프로젝트 추천 정확도 향상 |
 
 ---
 
@@ -212,6 +307,12 @@ Worker 배포하고 Slack App 설정도 해줘
 6. **Slack URL 자동 포함**
    - Linear 이슈 description에 Slack 원본 메시지 링크 항상 포함
    - AI 응답과 무관하게 프로그래밍적으로 보장
+
+7. **Linear 로컬 캐시 동기화**
+   - Linear Desktop App의 IndexedDB 캐시 활용
+   - 프로젝트별 최근 10개 이슈 제목을 KV에 동기화
+   - macOS launchd로 5분마다 자동 동기화
+   - AI 프로젝트 추천 정확도 대폭 향상
 
 ---
 
