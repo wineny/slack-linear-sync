@@ -11,6 +11,7 @@ import { handleSlackEvent } from './handlers/slack-events.js';
 import { handleHealthUpdate } from './handlers/health-update.js';
 import { handleInitiativeUpdate } from './handlers/initiative-update.js';
 import { getValidAccessToken } from './utils/token-manager.js';
+import { LinearClient } from './services/linear-client.js';
 import type { Env, SlackEventPayload } from './types/index.js';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -105,6 +106,56 @@ app.post('/slack/command', async (c) => {
   }
 
   return c.json({ error: 'Unknown command' }, 400);
+});
+
+// Test initiative-update directly (remove in production)
+app.get('/debug/initiative-test', async (c) => {
+  const env = c.env;
+  const linearClient = new LinearClient(env.LINEAR_API_TOKEN);
+  
+  try {
+    // Test with a known Linear user ID
+    const testUserId = '43fe6bb7-5407-474d-b94b-d9a1bfdebe08';
+    console.log('[DEBUG] Testing with user:', testUserId);
+    
+    const initiatives = await linearClient.getMyLeadInitiatives(testUserId);
+    console.log('[DEBUG] Got initiatives:', initiatives.length);
+    
+    if (initiatives.length === 0) {
+      return c.json({ error: 'No initiatives found' });
+    }
+    
+    const firstInit = initiatives[0];
+    console.log('[DEBUG] First initiative:', firstInit.name);
+    
+    const projects = await linearClient.getInitiativeProjects(firstInit.id);
+    console.log('[DEBUG] Got projects:', projects.length);
+    
+    if (projects.length === 0) {
+      return c.json({ initiatives: initiatives.length, projects: 0 });
+    }
+    
+    const firstProject = projects[0];
+    console.log('[DEBUG] First project:', firstProject.name);
+    
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - 7);
+    
+    const updates = await linearClient.getProjectUpdates(firstProject.id, weekStart);
+    console.log('[DEBUG] Got updates:', updates.length);
+    
+    return c.json({
+      initiatives: initiatives.length,
+      firstInitiative: firstInit.name,
+      projects: projects.length,
+      firstProject: firstProject.name,
+      updates: updates.length,
+      success: true
+    });
+  } catch (error) {
+    console.error('[DEBUG] Error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
 });
 
 // Debug endpoint (remove in production)

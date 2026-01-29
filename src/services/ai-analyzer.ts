@@ -469,6 +469,91 @@ ${userList}
 - 16: 매우 복잡 (새 기능 개발, 1주일 이상)`;
   }
 
+async summarizeInitiativeUpdates(
+    doneByProject: Array<{ name: string; items: string[] }>,
+    todoByProject: Array<{ name: string; items: string[] }>
+  ): Promise<{ done: Array<{ name: string; items: string[] }>; todo: Array<{ name: string; items: string[] }> }> {
+    const doneSection = doneByProject
+      .map((p, i) => `${i + 1}. ${p.name}\n${p.items.map(item => `- ${item}`).join('\n')}`)
+      .join('\n\n');
+    
+    const todoSection = todoByProject
+      .map((p, i) => `${i + 1}. ${p.name}\n${p.items.map(item => `- ${item}`).join('\n')}`)
+      .join('\n\n');
+
+    const doneProjectNames = doneByProject.map(p => p.name);
+    const todoProjectNames = todoByProject.map(p => p.name);
+
+    const prompt = `다음은 이번 주 프로젝트 업데이트 내용입니다. 각 프로젝트별로 핵심 내용을 2-3개의 불릿으로 요약해주세요.
+
+## 만든 결과 (${doneByProject.length}개 프로젝트)
+${doneSection || '(없음)'}
+
+## 만들 결과 (${todoByProject.length}개 프로젝트)
+${todoSection || '(없음)'}
+
+## 중요: 모든 프로젝트 포함 필수!
+- 만든 결과: ${doneProjectNames.length > 0 ? doneProjectNames.map(n => `"${n}"`).join(', ') : '없음'}
+- 만들 결과: ${todoProjectNames.length > 0 ? todoProjectNames.map(n => `"${n}"`).join(', ') : '없음'}
+
+위 프로젝트들을 **하나도 빠짐없이** 모두 출력에 포함해야 합니다.
+
+## 요약 규칙
+1. 각 프로젝트별로 가장 중요한 2-3개만 선택
+2. 한 불릿은 한 문장으로, 핵심만 간결하게
+3. 기술적 세부사항보다 "무엇을 했는지/할 것인지"에 집중
+4. 진행 상태가 있으면 포함 (완료, 진행중, 예정 등)
+
+## 예시 (입력 → 출력)
+
+입력:
+- 만든 결과: "프로젝트A", "프로젝트B"
+- 만들 결과: "프로젝트A", "프로젝트C"
+
+출력:
+{
+  "done": [
+    {"name": "프로젝트A", "items": ["핵심 성과 1", "핵심 성과 2"]},
+    {"name": "프로젝트B", "items": ["완료된 작업 요약"]}
+  ],
+  "todo": [
+    {"name": "프로젝트A", "items": ["다음 할 일 1", "다음 할 일 2"]},
+    {"name": "프로젝트C", "items": ["예정된 작업 요약"]}
+  ]
+}
+
+## JSON 응답 형식
+위 예시처럼 입력된 모든 프로젝트를 빠짐없이 포함하여 JSON만 출력하세요.`;
+
+    try {
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 2048,
+        messages: [{ role: 'user', content: prompt }],
+      });
+
+      const content = response.content[0];
+      if (content.type !== 'text') {
+        return { done: doneByProject, todo: todoByProject };
+      }
+
+      const jsonString = extractJSON(content.text);
+      if (!jsonString) {
+        console.error('Failed to extract JSON from summary response');
+        return { done: doneByProject, todo: todoByProject };
+      }
+
+      const parsed = JSON.parse(jsonString);
+      return {
+        done: parsed.done || doneByProject,
+        todo: parsed.todo || todoByProject,
+      };
+    } catch (error) {
+      console.error('AI summary error:', error);
+      return { done: doneByProject, todo: todoByProject };
+    }
+  }
+
   static fallbackThreadAnalysis(
     messages: Array<{ author: string; text: string }>,
     slackPermalink?: string

@@ -1,7 +1,107 @@
-import type { Env, LinearInitiative, LinearProjectUpdate } from '../types/index.js';
+import type { Env } from '../types/index.js';
 import { LinearClient } from '../services/linear-client.js';
 import { mapSlackUserToLinear } from '../utils/user-mapper.js';
 import { SlackClient } from '../services/slack-client.js';
+import { AIAnalyzer } from '../services/ai-analyzer.js';
+
+interface ProjectResult {
+  name: string;
+  items: string[];
+}
+
+function cleanForSlack(text: string): string {
+  return text
+    .replace(/\*\*/g, '')
+    .replace(/##/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function parseUpdateSections(body: string): { done: string[]; todo: string[] } {
+  const result = { done: [] as string[], todo: [] as string[] };
+  
+  const donePatterns = [
+    /\*\*만든 결과물?\*\*\s*([\s\S]*?)(?=\*\*만들 결과물?\*\*|$)/i,
+    /##\s*만든 결과물?\s*([\s\S]*?)(?=##\s*만들 결과물?|$)/i,
+    /만든 결과물?[:\s]*([\s\S]*?)(?=만들 결과물?|$)/i,
+  ];
+  
+  const todoPatterns = [
+    /\*\*만들 결과물?\*\*\s*([\s\S]*?)$/i,
+    /##\s*만들 결과물?\s*([\s\S]*?)$/i,
+    /만들 결과물?[:\s]*([\s\S]*?)$/i,
+  ];
+  
+  for (const pattern of donePatterns) {
+    const match = body.match(pattern);
+    if (match && match[1]?.trim()) {
+      result.done = extractBulletItems(cleanForSlack(match[1].trim()));
+      break;
+    }
+  }
+  
+  for (const pattern of todoPatterns) {
+    const match = body.match(pattern);
+    if (match && match[1]?.trim()) {
+      result.todo = extractBulletItems(cleanForSlack(match[1].trim()));
+      break;
+    }
+  }
+  
+  return result;
+}
+
+function extractBulletItems(text: string): string[] {
+  return text
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .map(line => line.replace(/^[\*\-•]\s*/, '').trim())
+    .filter(line => line.length > 0);
+}
+
+function formatOutput(
+  doneByProject: ProjectResult[],
+  todoByProject: ProjectResult[]
+): string {
+  const sections: string[] = [];
+
+  if (doneByProject.length > 0) {
+    const doneSection = ['*✅ 만든 결과*', ''];
+    for (const project of doneByProject) {
+      doneSection.push(`*${project.name}*`);
+      for (const item of project.items) {
+        doneSection.push(`  •  ${item}`);
+      }
+      doneSection.push('');
+    }
+    sections.push(doneSection.join('\n'));
+  }
+
+  if (todoByProject.length > 0) {
+    const todoSection = ['*📝 만들 결과*', ''];
+    for (const project of todoByProject) {
+      todoSection.push(`*${project.name}*`);
+      for (const item of project.items) {
+        todoSection.push(`  •  ${item}`);
+      }
+      todoSection.push('');
+    }
+    sections.push(todoSection.join('\n'));
+  }
+
+  return sections.join('\n');
+}
+
+async function sendSlackMessage(responseUrl: string, text: string): Promise<void> {
+  const truncated = text.length > 3500 ? text.slice(0, 3500) + '\n\n_(메시지가 너무 길어 잘렸습니다)_' : text;
+  await fetch(responseUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ response_type: 'ephemeral', text: truncated }),
+  });
+}
 
 export async function handleInitiativeUpdate(
   env: Env,
@@ -12,102 +112,85 @@ export async function handleInitiativeUpdate(
     const slackClient = new SlackClient(env.SLACK_BOT_TOKEN);
     const linearClient = new LinearClient(env.LINEAR_API_TOKEN);
 
-    const { linearUserId } = await mapSlackUserToLinear(
-      slackUserId,
-      slackClient,
-      linearClient
-    );
+    const { linearUserId } = await mapSlackUserToLinear(slackUserId, slackClient, linearClient);
 
     if (!linearUserId) {
-      await fetch(responseUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          response_type: 'ephemeral',
-          text: '❌ Linear 계정을 찾을 수 없습니다.',
-        }),
-      });
+      await sendSlackMessage(responseUrl, '❌ Linear 계정을 찾을 수 없습니다.');
       return;
     }
 
-    const initiatives = await linearClient.getMyLeadInitiatives(linearUserId);
-
-    if (initiatives.length === 0) {
-      await fetch(responseUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          response_type: 'ephemeral',
-          text: '❌ 리드하는 이니셔티브가 없습니다.',
-        }),
-      });
+    const allInitiatives = await linearClient.getMyLeadInitiatives(linearUserId);
+    
+    if (allInitiatives.length === 0) {
+      await sendSlackMessage(responseUrl, '❌ 리드하는 이니셔티브가 없습니다.');
       return;
     }
 
     const weekStart = getWeekStart();
-    const initiativeSections: string[] = [];
+    const MAX_INITIATIVES = 5;
+    const initiatives = allInitiatives.slice(0, MAX_INITIATIVES);
+    
+    const doneByProject: ProjectResult[] = [];
+    const todoByProject: ProjectResult[] = [];
 
-    for (const initiative of initiatives) {
-      const projects = await linearClient.getInitiativeProjects(initiative.id);
+    console.log(`[DEBUG] weekStart: ${weekStart.toISOString()}`);
 
-      if (projects.length === 0) {
-        continue;
-      }
+    for (const init of initiatives) {
+      console.log(`[DEBUG] Processing initiative: ${init.name}`);
+      const data = await linearClient.getInitiativeWithUpdates(init.id);
+      if (!data) continue;
 
-      const projectSections: string[] = [];
+      console.log(`[DEBUG] Projects in initiative: ${data.projects.map(p => p.name).join(', ')}`);
 
-      for (const project of projects) {
-        const updates = await linearClient.getProjectUpdates(project.id, weekStart);
-
-        if (updates.length > 0) {
-          const latestUpdate = updates[0];
-          projectSections.push(
-            `📊 *${project.name}*\n${latestUpdate.body}`
-          );
-        } else {
-          const projectUpdateUrl = `${project.url}/updates`;
-          projectSections.push(
-            `📊 *${project.name}*\n업데이트 없음 - <${projectUpdateUrl}|작성하기>`
-          );
-        }
-      }
-
-      if (projectSections.length > 0) {
-        initiativeSections.push(
-          `📋 *${initiative.name}*\n\n${projectSections.join('\n\n')}\n\n---`
+      for (const project of data.projects) {
+        const thisWeekUpdates = project.updates.filter(
+          u => new Date(u.createdAt) >= weekStart
         );
+
+        console.log(`[DEBUG] ${project.name}: ${project.updates.length} total updates, ${thisWeekUpdates.length} this week`);
+
+        if (thisWeekUpdates.length > 0) {
+          const latest = thisWeekUpdates[0];
+          const parsed = parseUpdateSections(latest.body);
+          
+          console.log(`[DEBUG] ${project.name} parsed: done=${parsed.done.length}, todo=${parsed.todo.length}`);
+          
+          if (parsed.done.length > 0) {
+            doneByProject.push({ name: project.name, items: parsed.done });
+          }
+          if (parsed.todo.length > 0) {
+            todoByProject.push({ name: project.name, items: parsed.todo });
+          }
+        }
       }
     }
 
-    const formattedMessage = formatInitiativeMessage(initiativeSections);
+    console.log(`[DEBUG] Final: doneByProject=${doneByProject.map(p => p.name).join(', ')}`);
+    console.log(`[DEBUG] Final: todoByProject=${todoByProject.map(p => p.name).join(', ')}`);
 
-    await fetch(responseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        response_type: 'ephemeral',
-        text: formattedMessage,
-      }),
-    });
+
+    if (doneByProject.length === 0 && todoByProject.length === 0) {
+      await sendSlackMessage(responseUrl, '📭 이번 주에 작성된 프로젝트 업데이트가 없습니다.');
+      return;
+    }
+
+    const aiAnalyzer = new AIAnalyzer(env.ANTHROPIC_API_KEY);
+    const summarized = await aiAnalyzer.summarizeInitiativeUpdates(doneByProject, todoByProject);
+
+    const output = formatOutput(summarized.done, summarized.todo);
+    const moreText = allInitiatives.length > MAX_INITIATIVES 
+      ? `\n_(+${allInitiatives.length - MAX_INITIATIVES}개 이니셔티브 더 있음)_` 
+      : '';
+
+    await sendSlackMessage(responseUrl, output + moreText);
+
   } catch (error) {
     console.error('Error in handleInitiativeUpdate:', error);
-    await fetch(responseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        response_type: 'ephemeral',
-        text: `❌ 오류가 발생했습니다: ${error instanceof Error ? error.message : '알 수 없는 오류'}`,
-      }),
-    });
+    await sendSlackMessage(
+      responseUrl, 
+      `❌ 오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`
+    );
   }
-}
-
-function formatInitiativeMessage(sections: string[]): string {
-  if (sections.length === 0) {
-    return '❌ 프로젝트가 있는 이니셔티브가 없습니다.';
-  }
-
-  return sections.join('\n');
 }
 
 function getWeekStart(): Date {
