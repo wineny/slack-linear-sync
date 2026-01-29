@@ -1,11 +1,14 @@
 import { buildImagePrompt, buildTextPrompt } from './prompts/index.js';
 import type { TextAnalysisRequest, TextAnalysisResult, PromptContext } from './prompts/index.js';
+import { storeTokens, getTokens, deleteTokens, validateParams, type OAuthTokens, type TokenStorageEnv } from './oauth/token-storage.js';
 
 interface Env {
   GEMINI_API_KEY: string;
   ANTHROPIC_API_KEY: string;
   R2_BUCKET: R2Bucket;
   R2_PUBLIC_URL: string;
+  OAUTH_TOKENS: KVNamespace;
+  TOKEN_ENCRYPTION_KEY: string;
 }
 
 interface AnalysisRequest {
@@ -47,7 +50,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     };
 
@@ -55,17 +58,21 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
-    if (request.method !== 'POST') {
-      return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-        status: 405,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
     const url = new URL(request.url);
     const path = url.pathname;
 
     try {
+      if (path === '/oauth/token') {
+        return await handleOAuthToken(request, env, corsHeaders);
+      }
+
+      if (request.method !== 'POST') {
+        return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+          status: 405,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       if (path === '/upload') {
         const body: UploadRequest = await request.json();
         const result = await uploadToR2(body, env);
@@ -347,4 +354,88 @@ function parseJsonResponse(text: string): AnalysisResult {
       error: 'Failed to parse JSON response',
     };
   }
+}
+
+async function handleOAuthToken(
+  request: Request,
+  env: Env,
+  corsHeaders: Record<string, string>
+): Promise<Response> {
+  const url = new URL(request.url);
+  const tokenEnv: TokenStorageEnv = {
+    OAUTH_TOKENS: env.OAUTH_TOKENS,
+    TOKEN_ENCRYPTION_KEY: env.TOKEN_ENCRYPTION_KEY,
+  };
+
+  if (request.method === 'POST') {
+    const body = await request.json() as { device_id?: string; service?: string; tokens?: OAuthTokens };
+    const validation = validateParams(body.device_id, body.service);
+    
+    if (!validation.valid) {
+      return new Response(JSON.stringify({ success: false, error: validation.error }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (!body.tokens || typeof body.tokens !== 'object' || !body.tokens.access_token) {
+      return new Response(JSON.stringify({ success: false, error: 'tokens with access_token required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    await storeTokens(tokenEnv, body.device_id!, body.service!, body.tokens);
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (request.method === 'GET') {
+    const deviceId = url.searchParams.get('device_id');
+    const service = url.searchParams.get('service');
+    const validation = validateParams(deviceId, service);
+
+    if (!validation.valid) {
+      return new Response(JSON.stringify({ success: false, error: validation.error }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const tokens = await getTokens(tokenEnv, deviceId!, service!);
+    if (!tokens) {
+      return new Response(JSON.stringify({ success: false, error: 'Tokens not found' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    return new Response(JSON.stringify({ success: true, tokens }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (request.method === 'DELETE') {
+    const deviceId = url.searchParams.get('device_id');
+    const service = url.searchParams.get('service');
+    const validation = validateParams(deviceId, service);
+
+    if (!validation.valid) {
+      return new Response(JSON.stringify({ success: false, error: validation.error }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    await deleteTokens(tokenEnv, deviceId!, service!);
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+    status: 405,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
 }
