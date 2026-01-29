@@ -370,6 +370,8 @@ export class LinearClient {
       const nextCycle: Array<{ id: string; identifier: string; title: string; url: string; cycle: { number: number } }> = [];
 
       for (const issue of result.project.issues.nodes) {
+        if (issue.state.type === 'canceled') continue;
+
         const issueInfo = {
           id: issue.id,
           identifier: issue.identifier,
@@ -399,11 +401,18 @@ export class LinearClient {
           continue;
         }
 
-        // Next Cycle
+        // Planned issues in cycles (next, current, or past cycles with unstarted state)
         if (issue.cycle) {
           const cycleStartDate = new Date(issue.cycle.startsAt);
+          const cycleEndDate = new Date(issue.cycle.endsAt);
           cycleStartDate.setHours(0, 0, 0, 0);
-          if (cycleStartDate > today) {
+          cycleEndDate.setHours(23, 59, 59, 999);
+
+          const isNextCycle = cycleStartDate > today;
+          const isCurrentCycle = cycleStartDate <= today && cycleEndDate >= today;
+          const isPastCyclePlanned = cycleEndDate < today && issue.state.type === 'unstarted';
+
+          if (isNextCycle || isCurrentCycle || isPastCyclePlanned) {
             nextCycle.push({
               ...issueInfo,
               cycle: { number: issue.cycle.number },
@@ -504,7 +513,91 @@ export class LinearClient {
    }
 
    /**
-    * Get projects under an initiative
+    * Get initiative with all projects and their recent updates in one query
+    */
+   async getInitiativeWithUpdates(initiativeId: string): Promise<{
+     id: string;
+     name: string;
+     projects: Array<{
+       id: string;
+       name: string;
+       url: string;
+       updates: Array<{
+         id: string;
+         body: string;
+         createdAt: string;
+         userName: string;
+       }>;
+     }>;
+   } | null> {
+     try {
+       const result = await this.query<{
+         initiative: {
+           id: string;
+           name: string;
+           projects: {
+             nodes: Array<{
+               id: string;
+               name: string;
+               url: string;
+               projectUpdates: {
+                 nodes: Array<{
+                   id: string;
+                   body: string;
+                   createdAt: string;
+                   user: { name: string };
+                 }>;
+               };
+             }>;
+           };
+         };
+       }>(`
+         query GetInitiativeWithUpdates($initiativeId: String!) {
+           initiative(id: $initiativeId) {
+             id
+             name
+             projects {
+               nodes {
+                 id
+                 name
+                 url
+                 projectUpdates(first: 5) {
+                   nodes {
+                     id
+                     body
+                     createdAt
+                     user { name }
+                   }
+                 }
+               }
+             }
+           }
+         }
+       `, { initiativeId });
+
+       return {
+         id: result.initiative.id,
+         name: result.initiative.name,
+         projects: result.initiative.projects.nodes.map(p => ({
+           id: p.id,
+           name: p.name,
+           url: p.url,
+           updates: p.projectUpdates.nodes.map(u => ({
+             id: u.id,
+             body: u.body,
+             createdAt: u.createdAt,
+             userName: u.user.name,
+           })),
+         })),
+       };
+     } catch (error) {
+       console.error('Error fetching initiative with updates:', error);
+       return null;
+     }
+   }
+
+   /**
+    * Get projects under an initiative (legacy - use getInitiativeWithUpdates instead)
     */
    async getInitiativeProjects(initiativeId: string): Promise<Array<{
      id: string;
