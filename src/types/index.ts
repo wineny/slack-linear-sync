@@ -9,6 +9,9 @@ export interface Env {
   ISSUE_EMOJI: string;
   AI_WORKER_URL: string;
 
+  PPOSIRAEGI_PROJECT_ID?: string;
+  PPOSIRAEGI_MILESTONE_ID?: string;
+
   // Secrets
   SLACK_BOT_TOKEN: string;
   SLACK_SIGNING_SECRET: string;
@@ -116,6 +119,7 @@ export interface LinearProject {
   id: string;
   name: string;
   description?: string;
+  content?: string; // 프로젝트 계획 문서 (## 0. 이슈 ~ ## 4. 관련 링크)
   state?: string; // "started" | "planned" | "paused" | "completed" | "canceled"
   teams: { nodes: Array<{ id: string; name: string }> };
 }
@@ -124,6 +128,8 @@ export interface LinearProject {
 export interface CachedProject {
   id: string;
   name: string;
+  description?: string;
+  content?: string;
   teamId: string;
   teamName: string;
   state: string;

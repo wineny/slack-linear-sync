@@ -12,6 +12,10 @@ DONE_EMOJI = "해결"
 ISSUE_EMOJI = "issue"
 AI_WORKER_URL = "https://linear-capture-ai.ny-4f1.workers.dev"
 
+# 뽀시래기 프로젝트/마일스톤 자동 설정
+PPOSIRAEGI_PROJECT_ID = "9c2623fd-fd86-439e-a6a0-0d00a46dd552"
+PPOSIRAEGI_MILESTONE_ID = "447f5516-83cf-488f-bca5-e56dfddb5e14"
+
 # KV namespace for issue mapping (Slack message -> Linear issue)
 [[kv_namespaces]]
 binding = "ISSUE_MAPPINGS"

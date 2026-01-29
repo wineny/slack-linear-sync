@@ -177,6 +177,8 @@ async function processQuestion(
     assigneeId: assigneeId,
     subscriberIds: subscriberIds.length > 0 ? subscriberIds : undefined,
     priority: 3, // Normal priority
+    projectId: env.PPOSIRAEGI_PROJECT_ID,
+    projectMilestoneId: env.PPOSIRAEGI_MILESTONE_ID,
     // OAuth actor=app mode: show Slack author instead of API key owner
     createAsUser: oauthToken ? authorName : undefined,
     displayIconUrl: oauthToken ? authorAvatar : undefined,

@@ -75,6 +75,7 @@ export class LinearClient {
     subscriberIds?: string[];
     priority?: number;
     projectId?: string;
+    projectMilestoneId?: string;
     estimate?: number;
     // OAuth actor=app mode: display as "User (via App)"
     createAsUser?: string;
@@ -90,6 +91,7 @@ export class LinearClient {
         subscriberIds: params.subscriberIds,
         priority: params.priority,
         projectId: params.projectId,
+        projectMilestoneId: params.projectMilestoneId,
       };
 
       // estimate는 1 이상일 때만 포함 (Linear API는 0을 거부함)
