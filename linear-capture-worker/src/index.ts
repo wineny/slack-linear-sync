@@ -1,6 +1,7 @@
 import { buildImagePrompt, buildTextPrompt } from './prompts/index.js';
 import type { TextAnalysisRequest, TextAnalysisResult, PromptContext } from './prompts/index.js';
 import { storeTokens, getTokens, deleteTokens, validateParams, type OAuthTokens, type TokenStorageEnv } from './oauth/token-storage.js';
+import { handleSlackAuth, handleSlackCallback, handleSlackChannels, handleSlackStatus, handleSlackDisconnect, type SlackEnv } from './slack/oauth.js';
 
 interface Env {
   GEMINI_API_KEY: string;
@@ -9,6 +10,8 @@ interface Env {
   R2_PUBLIC_URL: string;
   OAUTH_TOKENS: KVNamespace;
   TOKEN_ENCRYPTION_KEY: string;
+  SLACK_CLIENT_ID: string;
+  SLACK_CLIENT_SECRET: string;
 }
 
 interface AnalysisRequest {
@@ -64,6 +67,26 @@ export default {
     try {
       if (path === '/oauth/token') {
         return await handleOAuthToken(request, env, corsHeaders);
+      }
+
+      if (path === '/slack/auth' && request.method === 'GET') {
+        return handleSlackAuth(request, env as SlackEnv, corsHeaders);
+      }
+
+      if (path === '/slack/callback' && request.method === 'POST') {
+        return await handleSlackCallback(request, env as SlackEnv, corsHeaders);
+      }
+
+      if (path === '/slack/channels' && request.method === 'GET') {
+        return await handleSlackChannels(request, env as SlackEnv, corsHeaders);
+      }
+
+      if (path === '/slack/status' && request.method === 'GET') {
+        return await handleSlackStatus(request, env as SlackEnv, corsHeaders);
+      }
+
+      if (path === '/slack/disconnect' && request.method === 'DELETE') {
+        return await handleSlackDisconnect(request, env as SlackEnv, corsHeaders);
       }
 
       if (request.method !== 'POST') {

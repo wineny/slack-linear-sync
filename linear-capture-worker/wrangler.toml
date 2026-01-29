@@ -17,6 +17,8 @@ R2_PUBLIC_URL = "https://pub-235a750bab114df78449a6fb9613e208.r2.dev"
 # - GEMINI_API_KEY
 # - ANTHROPIC_API_KEY
 # - TOKEN_ENCRYPTION_KEY (64-char hex for AES-256)
+# - SLACK_CLIENT_ID
+# - SLACK_CLIENT_SECRET
 
 [placement]
 mode = "smart"
