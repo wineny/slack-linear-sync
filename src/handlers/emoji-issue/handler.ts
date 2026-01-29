@@ -5,6 +5,7 @@ import { AIAnalyzer } from '../../services/ai-analyzer.js';
 import { mapSlackUserToLinear } from '../../utils/user-mapper.js';
 import { collectThreadMessages } from './thread-collector.js';
 import { getProjectsFromCache } from '../../services/project-cache.js';
+import { getValidAccessToken } from '../../utils/token-manager.js';
 
 export async function handleEmojiIssue(
   event: SlackReactionEvent,
@@ -16,7 +17,23 @@ export async function handleEmojiIssue(
   console.log(`Emoji issue triggered by ${reactorUserId} on ${channel}:${messageTs}`);
 
   const slackClient = new SlackClient(env.SLACK_BOT_TOKEN);
-  const linearClient = new LinearClient(env.LINEAR_API_TOKEN);
+  
+  const tokenResult = await getValidAccessToken(
+    env.LINEAR_TOKENS,
+    env.LINEAR_CLIENT_ID,
+    env.LINEAR_CLIENT_SECRET
+  );
+  
+  if (tokenResult.refreshed) {
+    console.log('OAuth token was refreshed automatically');
+  }
+  
+  const oauthToken = tokenResult.token;
+  if (!oauthToken) {
+    console.error(`OAuth token not available: ${tokenResult.error}. Falling back to API key.`);
+  }
+  
+  const linearClient = new LinearClient(oauthToken || env.LINEAR_API_TOKEN);
   const aiAnalyzer = new AIAnalyzer(env.ANTHROPIC_API_KEY);
 
   const messageResult = await slackClient.getConversationReplies(channel, messageTs);
@@ -60,6 +77,8 @@ export async function handleEmojiIssue(
       projects: projects.map(p => ({
         id: p.id,
         name: p.name,
+        description: p.description,
+        content: p.content,
         keywords: p.keywords,
         teamName: p.teamName,
         recentIssueTitles: p.recentIssueTitles,
@@ -84,12 +103,13 @@ export async function handleEmojiIssue(
     return;
   }
 
-  const { linearUserId } = await mapSlackUserToLinear(
-    reactorUserId,
-    slackClient,
-    linearClient
-  );
+  const [{ linearUserId }, reactorInfo] = await Promise.all([
+    mapSlackUserToLinear(reactorUserId, slackClient, linearClient),
+    slackClient.getUserInfo(reactorUserId),
+  ]);
   const assigneeId = linearUserId || undefined;
+  const reactorName = reactorInfo.user?.real_name || reactorInfo.user?.name || 'Unknown';
+  const reactorAvatar = reactorInfo.user?.profile?.image_72 || reactorInfo.user?.profile?.image_192;
 
   let teamId = env.LINEAR_TEAM_ID;
   let matchedProject: CachedProject | undefined;
@@ -120,6 +140,8 @@ export async function handleEmojiIssue(
     priority: analysisResult.suggestedPriority || 3,
     projectId: analysisResult.suggestedProjectId,
     estimate: analysisResult.suggestedEstimate,
+    createAsUser: oauthToken ? reactorName : undefined,
+    displayIconUrl: oauthToken ? reactorAvatar : undefined,
   });
 
   if (!issueResult.success) {
@@ -137,9 +159,6 @@ export async function handleEmojiIssue(
   if (issueResult.issueId && permalink) {
     await linearClient.linkSlackThread(issueResult.issueId, permalink, true);
   }
-
-  const reactorInfo = await slackClient.getUserInfo(reactorUserId);
-  const reactorName = reactorInfo.user?.real_name || reactorInfo.user?.name || 'Unknown';
 
   // matchedProject는 위에서 이미 할당됨
   const projectLine = matchedProject ? `\n프로젝트: ${matchedProject.name}` : '';
