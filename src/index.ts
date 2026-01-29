@@ -9,6 +9,7 @@ import { Hono } from 'hono';
 import { verifySlackSignature } from './utils/signature.js';
 import { handleSlackEvent } from './handlers/slack-events.js';
 import { handleHealthUpdate } from './handlers/health-update.js';
+import { handleInitiativeUpdate } from './handlers/initiative-update.js';
 import { getValidAccessToken } from './utils/token-manager.js';
 import type { Env, SlackEventPayload } from './types/index.js';
 
@@ -89,6 +90,17 @@ app.post('/slack/command', async (c) => {
     return c.json({
       response_type: 'ephemeral',
       text: '📊 프로젝트 현황을 가져오는 중...'
+    });
+  }
+
+  if (command === '/initiative-update') {
+    // Immediate response (3-second timeout requirement)
+    c.executionCtx.waitUntil(
+      handleInitiativeUpdate(env, userId!, responseUrl!)
+    );
+    return c.json({
+      response_type: 'ephemeral',
+      text: '📋 이니셔티브 업데이트를 가져오는 중...'
     });
   }
 
