@@ -7,6 +7,8 @@ import { getValidNotionToken, type NotionEnv } from './oauth.js';
 
 const NOTION_API_VERSION = '2022-06-28';
 const MAX_CONTENT_LENGTH = 2000;
+const MAX_DEPTH = 3;
+const MAX_API_CALLS = 40;
 
 const TEXT_BLOCK_TYPES = [
   'paragraph',
@@ -38,6 +40,7 @@ interface NotionBlock {
   object: 'block';
   id: string;
   type: string;
+  has_children?: boolean;
   [key: string]: unknown;
 }
 
@@ -59,28 +62,37 @@ interface FetchBlocksResult {
   error?: { status: number; data: NotionErrorResponse };
 }
 
-/**
- * Fetch all blocks with pagination support
- * Handles has_more/next_cursor to get all children blocks
- */
-async function fetchAllBlocks(
+interface FetchContext {
+  token: string;
+  apiCalls: number;
+  visitedIds: Set<string>;
+  budgetExhausted: boolean;
+}
+
+async function fetchBlocksPaginated(
   blockId: string,
-  token: string
+  ctx: FetchContext
 ): Promise<FetchBlocksResult> {
   const allBlocks: NotionBlock[] = [];
   let cursor: string | null = null;
 
   do {
+    if (ctx.apiCalls >= MAX_API_CALLS) {
+      ctx.budgetExhausted = true;
+      break;
+    }
+
     const url = new URL(`https://api.notion.com/v1/blocks/${blockId}/children`);
     url.searchParams.set('page_size', '100');
     if (cursor) {
       url.searchParams.set('start_cursor', cursor);
     }
 
+    ctx.apiCalls++;
     const response = await fetch(url.toString(), {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${token}`,
+        'Authorization': `Bearer ${ctx.token}`,
         'Notion-Version': NOTION_API_VERSION,
       },
     });
@@ -96,6 +108,60 @@ async function fetchAllBlocks(
   } while (cursor);
 
   return { blocks: allBlocks };
+}
+
+interface BlockWithChildren {
+  block: NotionBlock;
+  children: BlockWithChildren[];
+}
+
+async function fetchBlocksRecursively(
+  blockId: string,
+  ctx: FetchContext,
+  depth: number = 0
+): Promise<{ tree: BlockWithChildren[]; error?: FetchBlocksResult['error'] }> {
+  if (depth > MAX_DEPTH || ctx.budgetExhausted) {
+    return { tree: [] };
+  }
+
+  if (ctx.visitedIds.has(blockId)) {
+    return { tree: [] };
+  }
+  ctx.visitedIds.add(blockId);
+
+  const result = await fetchBlocksPaginated(blockId, ctx);
+  if (result.error) {
+    return { tree: [], error: result.error };
+  }
+
+  const tree: BlockWithChildren[] = [];
+
+  for (const block of result.blocks) {
+    const node: BlockWithChildren = { block, children: [] };
+
+    if (block.has_children && !ctx.budgetExhausted) {
+      const childResult = await fetchBlocksRecursively(block.id, ctx, depth + 1);
+      if (childResult.error) {
+        return { tree, error: childResult.error };
+      }
+      node.children = childResult.tree;
+    }
+
+    tree.push(node);
+  }
+
+  return { tree };
+}
+
+function flattenBlockTree(tree: BlockWithChildren[]): NotionBlock[] {
+  const blocks: NotionBlock[] = [];
+  for (const node of tree) {
+    blocks.push(node.block);
+    if (node.children.length > 0) {
+      blocks.push(...flattenBlockTree(node.children));
+    }
+  }
+  return blocks;
 }
 
 function extractBlockText(block: NotionBlock): string {
@@ -172,7 +238,14 @@ export async function handleNotionBlocks(
   }
 
   try {
-    const result = await fetchAllBlocks(pageId, tokenResult.token);
+    const ctx: FetchContext = {
+      token: tokenResult.token,
+      apiCalls: 0,
+      visitedIds: new Set<string>(),
+      budgetExhausted: false,
+    };
+
+    const result = await fetchBlocksRecursively(pageId, ctx);
 
     if (result.error) {
       const { status, data: errorData } = result.error;
@@ -201,10 +274,11 @@ export async function handleNotionBlocks(
       );
     }
 
+    const allBlocks = flattenBlockTree(result.tree);
     const textParts: string[] = [];
     let blockCount = 0;
 
-    for (const block of result.blocks) {
+    for (const block of allBlocks) {
       const text = extractBlockText(block);
       if (text) {
         textParts.push(text);
@@ -213,7 +287,7 @@ export async function handleNotionBlocks(
     }
 
     let content = textParts.join('\n\n');
-    let truncated = false;
+    let truncated = ctx.budgetExhausted;
 
     if (content.length > MAX_CONTENT_LENGTH) {
       content = content.substring(0, MAX_CONTENT_LENGTH) + '...';
