@@ -9,6 +9,7 @@ const NOTION_API_VERSION = '2022-06-28';
 const MAX_CONTENT_LENGTH = 2000;
 const MAX_DEPTH = 3;
 const MAX_API_CALLS = 40;
+const MAX_RETRIES = 3;
 
 const TEXT_BLOCK_TYPES = [
   'paragraph',
@@ -69,6 +70,38 @@ interface FetchContext {
   budgetExhausted: boolean;
 }
 
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(
+  url: string,
+  token: string
+): Promise<Response> {
+  let lastResponse: Response | null = null;
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Notion-Version': NOTION_API_VERSION,
+      },
+    });
+
+    if (response.status !== 429) {
+      return response;
+    }
+
+    lastResponse = response;
+    const retryAfter = response.headers.get('Retry-After');
+    const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : (attempt + 1) * 1000;
+    await sleep(Math.min(waitMs, 5000));
+  }
+
+  return lastResponse!;
+}
+
 async function fetchBlocksPaginated(
   blockId: string,
   ctx: FetchContext
@@ -89,13 +122,7 @@ async function fetchBlocksPaginated(
     }
 
     ctx.apiCalls++;
-    const response = await fetch(url.toString(), {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${ctx.token}`,
-        'Notion-Version': NOTION_API_VERSION,
-      },
-    });
+    const response = await fetchWithRetry(url.toString(), ctx.token);
 
     if (!response.ok) {
       const errorData: NotionErrorResponse = await response.json();
