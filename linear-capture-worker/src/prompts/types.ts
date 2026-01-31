@@ -2,6 +2,7 @@ export interface PromptContext {
   projects?: Array<{ id: string; name: string; description?: string }>;
   users?: Array<{ id: string; name: string }>;
   instruction?: string;
+  language?: string;
 }
 
 export interface ImagePromptInput {

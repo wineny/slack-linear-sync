@@ -2,8 +2,20 @@ import { buildImagePrompt, buildTextPrompt } from './prompts/index.js';
 import type { TextAnalysisRequest, TextAnalysisResult, PromptContext } from './prompts/index.js';
 import { storeTokens, getTokens, deleteTokens, validateParams, type OAuthTokens, type TokenStorageEnv } from './oauth/token-storage.js';
 import { handleSlackAuth, handleSlackCallback, handleSlackChannels, handleSlackStatus, handleSlackDisconnect, type SlackEnv } from './slack/oauth.js';
+import { handleSlackSearch } from './slack/search.js';
+import { handleNotionAuth, handleNotionCallback, handleNotionStatus, handleNotionDisconnect, type NotionEnv } from './notion/oauth.js';
+import { handleNotionSearch } from './notion/search.js';
+import { handleNotionBlocks } from './notion/blocks.js';
+import { handleGmailAuth, handleGmailCallback, handleGmailStatus, handleGmailDisconnect, type GmailEnv } from './gmail/oauth.js';
+import { handleGmailSearch } from './gmail/search.js';
+import { handleGmailIndex } from './vectorize/gmail.js';
+import { handleSlackIndex } from './vectorize/slack.js';
+import { handleNotionIndex } from './vectorize/notion.js';
+import { handleLinearIndex } from './vectorize/linear.js';
+import { handleRecommend } from './vectorize/recommend.js';
+import type { VectorizeEnv } from './vectorize/index.js';
 
-interface Env {
+interface Env extends VectorizeEnv {
   GEMINI_API_KEY: string;
   ANTHROPIC_API_KEY: string;
   R2_BUCKET: R2Bucket;
@@ -12,6 +24,10 @@ interface Env {
   TOKEN_ENCRYPTION_KEY: string;
   SLACK_CLIENT_ID: string;
   SLACK_CLIENT_SECRET: string;
+  NOTION_CLIENT_ID: string;
+  NOTION_CLIENT_SECRET: string;
+  GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
 }
 
 interface AnalysisRequest {
@@ -21,6 +37,7 @@ interface AnalysisRequest {
   }>;
   context?: PromptContext;
   instruction?: string;
+  language?: string;
   model?: 'gemini' | 'haiku';
 }
 
@@ -87,6 +104,197 @@ export default {
 
       if (path === '/slack/disconnect' && request.method === 'DELETE') {
         return await handleSlackDisconnect(request, env as SlackEnv, corsHeaders);
+      }
+
+      if (path === '/slack/search' && request.method === 'GET') {
+        return await handleSlackSearch(request, env as SlackEnv, corsHeaders);
+      }
+
+      if (path === '/slack/oauth-redirect' && request.method === 'GET') {
+        const code = url.searchParams.get('code');
+        const state = url.searchParams.get('state');
+        const error = url.searchParams.get('error');
+
+        const deepLinkUrl = new URL('linear-capture://slack/callback');
+        if (code) deepLinkUrl.searchParams.set('code', code);
+        if (state) deepLinkUrl.searchParams.set('state', state);
+        if (error) deepLinkUrl.searchParams.set('error', error);
+
+        const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Redirecting to Linear Capture...</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f5f5f5; }
+    .container { text-align: center; padding: 40px; background: white; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    h1 { font-size: 24px; margin-bottom: 16px; }
+    p { color: #666; margin-bottom: 24px; }
+    a { color: #5e6ad2; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>✅ Slack 연결 완료!</h1>
+    <p>Linear Capture 앱으로 돌아갑니다...</p>
+    <p><a href="${deepLinkUrl.toString()}">자동으로 열리지 않으면 클릭하세요</a></p>
+  </div>
+  <script>
+    window.location.href = "${deepLinkUrl.toString()}";
+  </script>
+</body>
+</html>`;
+
+        return new Response(html, {
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        });
+      }
+
+      if (path === '/notion/auth' && request.method === 'GET') {
+        return handleNotionAuth(request, env as NotionEnv, corsHeaders);
+      }
+
+      if (path === '/notion/callback' && request.method === 'POST') {
+        return await handleNotionCallback(request, env as NotionEnv, corsHeaders);
+      }
+
+      if (path === '/notion/status' && request.method === 'GET') {
+        return await handleNotionStatus(request, env as NotionEnv, corsHeaders);
+      }
+
+      if (path === '/notion/disconnect' && request.method === 'DELETE') {
+        return await handleNotionDisconnect(request, env as NotionEnv, corsHeaders);
+      }
+
+      if (path === '/notion/search' && request.method === 'GET') {
+        return await handleNotionSearch(request, env as NotionEnv, corsHeaders);
+      }
+
+      if (path === '/notion/blocks' && request.method === 'GET') {
+        return await handleNotionBlocks(request, env as NotionEnv, corsHeaders);
+      }
+
+      if (path === '/notion/oauth-redirect' && request.method === 'GET') {
+        const code = url.searchParams.get('code');
+        const state = url.searchParams.get('state');
+        const error = url.searchParams.get('error');
+
+        const deepLinkUrl = new URL('linear-capture://notion/callback');
+        if (code) deepLinkUrl.searchParams.set('code', code);
+        if (state) deepLinkUrl.searchParams.set('state', state);
+        if (error) deepLinkUrl.searchParams.set('error', error);
+
+        const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Redirecting to Linear Capture...</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f5f5f5; }
+    .container { text-align: center; padding: 40px; background: white; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    h1 { font-size: 24px; margin-bottom: 16px; }
+    p { color: #666; margin-bottom: 24px; }
+    a { color: #5e6ad2; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>✅ Notion 연결 완료!</h1>
+    <p>Linear Capture 앱으로 돌아갑니다...</p>
+    <p><a href="${deepLinkUrl.toString()}">자동으로 열리지 않으면 클릭하세요</a></p>
+  </div>
+  <script>
+    window.location.href = "${deepLinkUrl.toString()}";
+  </script>
+</body>
+</html>`;
+
+        return new Response(html, {
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        });
+      }
+
+      if (path === '/gmail/auth' && request.method === 'GET') {
+        return handleGmailAuth(request, env as GmailEnv, corsHeaders);
+      }
+
+      if (path === '/gmail/callback' && request.method === 'POST') {
+        return await handleGmailCallback(request, env as GmailEnv, corsHeaders);
+      }
+
+      if (path === '/gmail/status' && request.method === 'GET') {
+        return await handleGmailStatus(request, env as GmailEnv, corsHeaders);
+      }
+
+      if (path === '/gmail/disconnect' && request.method === 'DELETE') {
+        return await handleGmailDisconnect(request, env as GmailEnv, corsHeaders);
+      }
+
+      if (path === '/gmail/search' && request.method === 'GET') {
+        return await handleGmailSearch(request, env as GmailEnv, corsHeaders);
+      }
+
+      if (path === '/gmail/oauth-redirect' && request.method === 'GET') {
+        const code = url.searchParams.get('code');
+        const state = url.searchParams.get('state');
+        const error = url.searchParams.get('error');
+
+        const deepLinkUrl = new URL('linear-capture://gmail/callback');
+        if (code) deepLinkUrl.searchParams.set('code', code);
+        if (state) deepLinkUrl.searchParams.set('state', state);
+        if (error) deepLinkUrl.searchParams.set('error', error);
+
+        const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Redirecting to Linear Capture...</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f5f5f5; }
+    .container { text-align: center; padding: 40px; background: white; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    h1 { font-size: 24px; margin-bottom: 16px; }
+    p { color: #666; margin-bottom: 24px; }
+    a { color: #5e6ad2; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>✅ Gmail 연결 완료!</h1>
+    <p>Linear Capture 앱으로 돌아갑니다...</p>
+    <p><a href="${deepLinkUrl.toString()}">자동으로 열리지 않으면 클릭하세요</a></p>
+  </div>
+  <script>
+    window.location.href = "${deepLinkUrl.toString()}";
+  </script>
+</body>
+</html>`;
+
+        return new Response(html, {
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        });
+      }
+
+      if (path === '/index/gmail' && request.method === 'POST') {
+        return await handleGmailIndex(request, env as GmailEnv & VectorizeEnv, corsHeaders);
+      }
+
+      if (path === '/index/slack' && request.method === 'POST') {
+        return await handleSlackIndex(request, env as SlackEnv & VectorizeEnv, corsHeaders);
+      }
+
+      if (path === '/index/notion' && request.method === 'POST') {
+        return await handleNotionIndex(request, env as NotionEnv & VectorizeEnv, corsHeaders);
+      }
+
+      if (path === '/index/linear' && request.method === 'POST') {
+        return await handleLinearIndex(request, env, corsHeaders);
+      }
+
+      if (path === '/ai/recommend' && request.method === 'POST') {
+        return await handleRecommend(request, env, corsHeaders);
       }
 
       if (request.method !== 'POST') {
@@ -254,9 +462,9 @@ async function analyzeWithGemini(
   request: AnalysisRequest,
   apiKey: string
 ): Promise<AnalysisResult> {
-  const { images, context, instruction } = request;
+  const { images, context, instruction, language } = request;
 
-  const contextWithInstruction = context ? { ...context, instruction } : { instruction };
+  const contextWithInstruction = context ? { ...context, instruction, language } : { instruction, language };
   const prompt = buildImagePrompt(images.length, contextWithInstruction);
 
   const imageParts = images.map((img) => ({
@@ -303,9 +511,9 @@ async function analyzeWithHaiku(
   request: AnalysisRequest,
   apiKey: string
 ): Promise<AnalysisResult> {
-  const { images, context, instruction } = request;
+  const { images, context, instruction, language } = request;
 
-  const contextWithInstruction = context ? { ...context, instruction } : { instruction };
+  const contextWithInstruction = context ? { ...context, instruction, language } : { instruction, language };
   const prompt = buildImagePrompt(images.length, contextWithInstruction);
 
   const imageContent = images.map((img) => ({

@@ -1,5 +1,36 @@
 import type { PromptInput, PromptContext } from './types.js';
 
+/**
+ * Get language instruction for dynamic output language
+ * Korean is the default (no additional instruction needed)
+ */
+function getLanguageInstruction(language?: string): string {
+  if (!language || language === 'ko') return '';
+  
+  const langNames: Record<string, string> = {
+    en: 'English',
+    ko: 'Korean',
+    ja: 'Japanese',
+    zh: 'Chinese',
+  };
+  
+  const langName = langNames[language] || 'English';
+  
+  if (language === 'en') {
+    return `**CRITICAL: Write EVERYTHING in English. This includes:**
+- Title
+- All section headings (use "## Summary", "## Details", "## To Do" instead of Korean)
+- All content and descriptions
+- Do NOT use any Korean text anywhere in the output.
+
+`;
+  }
+  
+  return `**IMPORTANT: Write ALL output (title and description) in ${langName}. Do NOT use Korean.**
+
+`;
+}
+
 const TITLE_RULES = `## 제목 규칙 (매우 중요!)
 
 **사내 협업 vs 외부 문의 구분 규칙**:
@@ -113,13 +144,14 @@ function buildJsonFormat(hasContext: boolean): string {
 
 export function buildImagePrompt(imageCount: number, context?: PromptContext): string {
   const imageRef = imageCount > 1 ? `${imageCount}개의 스크린샷을` : '이 스크린샷을';
+  const languageInstruction = getLanguageInstruction(context?.language);
   const instructionSection = buildInstructionSection(context?.instruction);
   const contextSection = buildContextSection(context);
   const jsonFormat = buildJsonFormat(!!context);
 
   // instruction이 있으면 프롬프트 최상단에 배치하여 가중치 강화
   if (instructionSection) {
-    return `${instructionSection}
+    return `${languageInstruction}${instructionSection}
 
 ${imageRef} 분석하여 Linear 이슈 정보를 생성하세요.
 
@@ -132,7 +164,7 @@ ${contextSection}
 ${jsonFormat}`;
   }
 
-  return `${imageRef} 분석하여 Linear 이슈 정보를 생성하세요.
+  return `${languageInstruction}${imageRef} 분석하여 Linear 이슈 정보를 생성하세요.
 
 ${TITLE_RULES}
 
@@ -152,13 +184,14 @@ export function buildTextPrompt(
     .map((m) => `**${m.author}**: ${m.text}`)
     .join('\n\n');
 
+  const languageInstruction = getLanguageInstruction(context?.language);
   const contextSection = buildContextSection(context);
   const jsonFormat = buildJsonFormat(!!context);
   const permalinkNote = slackPermalink
     ? `\n\n> 원본 Slack 대화: ${slackPermalink}`
     : '';
 
-  return `다음 Slack 대화를 분석하여 Linear 이슈 정보를 생성하세요.
+  return `${languageInstruction}다음 Slack 대화를 분석하여 Linear 이슈 정보를 생성하세요.
 
 ## 대화 내용
 ${conversationText}
