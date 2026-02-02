@@ -6,9 +6,30 @@ import { getTokens, deleteTokens, type TokenStorageEnv, type OAuthTokens } from 
 
 const SLACK_SEARCH_URL = 'https://slack.com/api/search.messages';
 
-// <@USERID|displayname> → @displayname (API 호출 없이 regex로 처리)
 function resolveUserMentionsInSearch(text: string): string {
   return text.replace(/<@[A-Z0-9]+\|([^>]+)>/g, '@$1');
+}
+
+interface SlackBlock {
+  type: string;
+  text?: { type: string; text: string };
+  elements?: Array<{ type: string; text?: string }>;
+}
+
+function extractTextFromBlocks(blocks?: SlackBlock[]): string {
+  if (!blocks || blocks.length === 0) return '';
+  
+  const texts: string[] = [];
+  for (const block of blocks) {
+    if (block.type === 'section' && block.text?.text) {
+      texts.push(block.text.text);
+    } else if (block.type === 'context' && block.elements) {
+      for (const el of block.elements) {
+        if (el.text) texts.push(el.text);
+      }
+    }
+  }
+  return texts.join('\n').replace(/<[^>]+>/g, '').trim();
 }
 
 export interface SlackEnv extends TokenStorageEnv {
@@ -42,6 +63,7 @@ export interface SlackSearchResponse {
       };
       ts?: string;
       permalink?: string;
+      blocks?: SlackBlock[];
     }>;
   };
   error?: string;
@@ -126,14 +148,20 @@ export async function handleSlackSearch(
       );
     }
 
-    const messages: SlackMessage[] = (searchData.messages?.matches || []).map(match => ({
-      text: resolveUserMentionsInSearch(match.text),
-      user: match.user,
-      username: match.username,
-      channel: match.channel,
-      ts: match.ts,
-      permalink: match.permalink,
-    }));
+    const messages: SlackMessage[] = (searchData.messages?.matches || []).map(match => {
+      let text = match.text || '';
+      if (!text && match.blocks) {
+        text = extractTextFromBlocks(match.blocks);
+      }
+      return {
+        text: resolveUserMentionsInSearch(text),
+        user: match.user,
+        username: match.username,
+        channel: match.channel,
+        ts: match.ts,
+        permalink: match.permalink,
+      };
+    });
 
     return new Response(
       JSON.stringify({
