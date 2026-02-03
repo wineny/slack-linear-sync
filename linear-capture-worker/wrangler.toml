@@ -10,6 +10,10 @@ bucket_name = "linear-captures"
 binding = "OAUTH_TOKENS"
 id = "7b7a232959794d4f846ef0d8e8187be8"
 
+[[kv_namespaces]]
+binding = "ANALYTICS_KV"
+id = "e644b470b7474c3089de41837da3e737"
+
 [vars]
 R2_PUBLIC_URL = "https://pub-235a750bab114df78449a6fb9613e208.r2.dev"
 
@@ -19,6 +23,27 @@ R2_PUBLIC_URL = "https://pub-235a750bab114df78449a6fb9613e208.r2.dev"
 # - TOKEN_ENCRYPTION_KEY (64-char hex for AES-256)
 # - SLACK_CLIENT_ID
 # - SLACK_CLIENT_SECRET
+
+# Workers AI binding
+[ai]
+binding = "AI"
+
+# Vectorize index bindings
+[[vectorize]]
+binding = "GMAIL_VECTORS"
+index_name = "gmail-vectors"
+
+[[vectorize]]
+binding = "SLACK_VECTORS"
+index_name = "slack-vectors"
+
+[[vectorize]]
+binding = "NOTION_VECTORS"
+index_name = "notion-vectors"
+
+[[vectorize]]
+binding = "LINEAR_VECTORS"
+index_name = "linear-vectors"
 
 [placement]
 mode = "smart"
