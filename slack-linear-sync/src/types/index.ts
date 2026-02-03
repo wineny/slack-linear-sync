@@ -5,17 +5,27 @@ export interface Env {
   LINEAR_TEAM_ID: string;
   LINEAR_DEFAULT_STATE_ID: string;
   LINEAR_DONE_STATE_ID: string;
-  DONE_EMOJI: string; // e.g., "white_check_mark"
+  DONE_EMOJI: string;
+  ISSUE_EMOJI: string;
+  AI_WORKER_URL: string;
+
+  PPOSIRAEGI_PROJECT_ID?: string;
+  PPOSIRAEGI_MILESTONE_ID?: string;
 
   // Secrets
   SLACK_BOT_TOKEN: string;
   SLACK_SIGNING_SECRET: string;
   LINEAR_API_TOKEN: string;
   ANTHROPIC_API_KEY: string;
+  LINEAR_CLIENT_ID: string;
+  LINEAR_CLIENT_SECRET: string;
 
   // KV namespace for deduplication and issue mapping
   PROCESSED_MESSAGES?: KVNamespace;
   ISSUE_MAPPINGS?: KVNamespace;
+
+  // KV namespace for OAuth tokens (shared with linear-rona-bot)
+  LINEAR_TOKENS: KVNamespace;
 }
 
 // Slack Event API types
@@ -65,6 +75,8 @@ export interface SlackUserInfo {
     profile: {
       email?: string;
       display_name: string;
+      image_72?: string;
+      image_192?: string;
     };
     is_bot?: boolean;
   };
@@ -101,4 +113,52 @@ export interface AnalysisResult {
   description: string;
   success: boolean;
   error?: string;
+}
+
+export interface LinearProject {
+  id: string;
+  name: string;
+  description?: string;
+  content?: string; // 프로젝트 계획 문서 (## 0. 이슈 ~ ## 4. 관련 링크)
+  state?: string; // "started" | "planned" | "paused" | "completed" | "canceled"
+  teams: { nodes: Array<{ id: string; name: string }> };
+}
+
+// 캐시된 프로젝트 (linear-sync 스크립트에서 KV로 동기화)
+export interface CachedProject {
+  id: string;
+  name: string;
+  description?: string;
+  content?: string;
+  teamId: string;
+  teamName: string;
+  state: string;
+  keywords: string[];
+  recentIssueTitles?: string[];
+}
+
+export interface ProjectCache {
+  version: number;
+  updatedAt: string;
+  projects: CachedProject[];
+}
+
+export const PROJECT_CACHE_KEY = 'PROJECT_CACHE:all';
+
+export interface LinearInitiative {
+  id: string;
+  name: string;
+  description?: string;
+  url: string;
+}
+
+export interface LinearProjectUpdate {
+  id: string;
+  body: string;
+  createdAt: string;
+  url: string;
+  user: {
+    id: string;
+    name: string;
+  };
 }

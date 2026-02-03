@@ -3,7 +3,7 @@
  * Lightweight implementation without @linear/sdk for Workers compatibility
  */
 
-import type { LinearUser, LinearIssueResult } from '../types/index.js';
+import type { LinearUser, LinearIssueResult, LinearProject } from '../types/index.js';
 
 export class LinearClient {
   private token: string;
@@ -63,6 +63,8 @@ export class LinearClient {
 
   /**
    * Create a new issue
+   * @param params.createAsUser - Display name for the creator (OAuth actor=app mode only)
+   * @param params.displayIconUrl - Avatar URL for the creator (OAuth actor=app mode only)
    */
   async createIssue(params: {
     title: string;
@@ -72,8 +74,39 @@ export class LinearClient {
     assigneeId?: string;
     subscriberIds?: string[];
     priority?: number;
+    projectId?: string;
+    projectMilestoneId?: string;
+    estimate?: number;
+    // OAuth actor=app mode: display as "User (via App)"
+    createAsUser?: string;
+    displayIconUrl?: string;
   }): Promise<LinearIssueResult> {
     try {
+      const input: Record<string, unknown> = {
+        title: params.title,
+        description: params.description,
+        teamId: params.teamId,
+        stateId: params.stateId,
+        assigneeId: params.assigneeId,
+        subscriberIds: params.subscriberIds,
+        priority: params.priority,
+        projectId: params.projectId,
+        projectMilestoneId: params.projectMilestoneId,
+      };
+
+      // estimate는 1 이상일 때만 포함 (Linear API는 0을 거부함)
+      if (params.estimate && params.estimate > 0) {
+        input.estimate = params.estimate;
+      }
+
+      // OAuth actor=app mode: add createAsUser and displayIconUrl
+      if (params.createAsUser) {
+        input.createAsUser = params.createAsUser;
+      }
+      if (params.displayIconUrl) {
+        input.displayIconUrl = params.displayIconUrl;
+      }
+
       const result = await this.query<{
         issueCreate: {
           success: boolean;
@@ -92,21 +125,12 @@ export class LinearClient {
               id
               identifier
               url
+              state { name }
             }
           }
         }
       `,
-        {
-          input: {
-            title: params.title,
-            description: params.description,
-            teamId: params.teamId,
-            stateId: params.stateId,
-            assigneeId: params.assigneeId,
-            subscriberIds: params.subscriberIds,
-            priority: params.priority,
-          },
-        }
+        { input }
       );
 
       if (result.issueCreate.success && result.issueCreate.issue) {
@@ -218,52 +242,461 @@ export class LinearClient {
     }
   }
 
-  /**
-   * Link a Slack thread to an issue (creates official Slack integration)
-   * This enables bi-directional sync like Linear's native Slack integration
-   */
-  async linkSlackThread(
-    issueId: string,
-    slackUrl: string,
-    syncToCommentThread: boolean = true
-  ): Promise<{ success: boolean; error?: string }> {
-    try {
-      const result = await this.query<{
-        attachmentLinkSlack: {
-          success: boolean;
-          attachment?: {
-            id: string;
-          };
-        };
-      }>(
-        `
-        mutation AttachmentLinkSlack($issueId: String!, $url: String!, $syncToCommentThread: Boolean) {
-          attachmentLinkSlack(issueId: $issueId, url: $url, syncToCommentThread: $syncToCommentThread) {
-            success
-            attachment {
-              id
+  async getProjects(): Promise<LinearProject[]> {
+    const result = await this.query<{
+      projects: { nodes: LinearProject[] };
+    }>(`
+      query {
+        projects(
+          filter: {
+            or: [
+              { state: { eq: "started" } },
+              { state: { eq: "planned" } }
+            ]
+          }
+        ) {
+          nodes {
+            id
+            name
+            description
+            content
+            state
+            teams {
+              nodes {
+                id
+                name
+              }
             }
           }
         }
-      `,
-        {
-          issueId,
-          url: slackUrl,
-          syncToCommentThread,
-        }
-      );
-
-      if (result.attachmentLinkSlack.success) {
-        console.log(`Linked Slack thread to issue ${issueId}`);
-        return { success: true };
       }
+    `);
 
-      return { success: false, error: 'Slack link failed' };
+    return result.projects.nodes.filter(p => p.state === 'started');
+  }
+
+  /**
+   * Get started projects where the user is the lead
+   */
+  async getMyLeadProjects(linearUserId: string): Promise<Array<{
+    id: string;
+    name: string;
+    slugId: string;
+    url: string;
+  }>> {
+    try {
+      const result = await this.query<{
+        projects: {
+          nodes: Array<{
+            id: string;
+            name: string;
+            slugId: string;
+            url: string;
+            state: string;
+          }>;
+        };
+      }>(`
+        query GetMyLeadProjects($userId: ID!) {
+          projects(filter: {
+            state: { eq: "started" }
+            lead: { id: { eq: $userId } }
+          }) {
+            nodes {
+              id
+              name
+              slugId
+              url
+              state
+            }
+          }
+        }
+      `, { userId: linearUserId });
+
+      return result.projects.nodes.filter(p => p.state === 'started');
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      };
+      console.error('Error fetching lead projects:', error);
+      return [];
     }
   }
+
+  /**
+   * Get project issues categorized by status
+   */
+  async getProjectIssuesForUpdate(projectId: string, weekStart: Date): Promise<{
+    done: Array<{ id: string; identifier: string; title: string; url: string }>;
+    inReview: Array<{ id: string; identifier: string; title: string; url: string }>;
+    inProgress: Array<{ id: string; identifier: string; title: string; url: string }>;
+    nextCycle: Array<{ id: string; identifier: string; title: string; url: string; cycle: { number: number } }>;
+  }> {
+    try {
+      const result = await this.query<{
+        project: {
+          issues: {
+            nodes: Array<{
+              id: string;
+              identifier: string;
+              title: string;
+              url: string;
+              completedAt: string | null;
+              state: { name: string; type: string };
+              cycle: { number: number; startsAt: string; endsAt: string } | null;
+            }>;
+          };
+        };
+      }>(`
+        query GetProjectIssues($projectId: String!) {
+          project(id: $projectId) {
+            issues(first: 100) {
+              nodes {
+                id
+                identifier
+                title
+                url
+                completedAt
+                state { name type }
+                cycle { number startsAt endsAt }
+              }
+            }
+          }
+        }
+      `, { projectId });
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const done: Array<{ id: string; identifier: string; title: string; url: string }> = [];
+      const inReview: Array<{ id: string; identifier: string; title: string; url: string }> = [];
+      const inProgress: Array<{ id: string; identifier: string; title: string; url: string }> = [];
+      const nextCycle: Array<{ id: string; identifier: string; title: string; url: string; cycle: { number: number } }> = [];
+
+      for (const issue of result.project.issues.nodes) {
+        if (issue.state.type === 'canceled') continue;
+
+        const issueInfo = {
+          id: issue.id,
+          identifier: issue.identifier,
+          title: issue.title,
+          url: issue.url,
+        };
+
+        // Done: completed this week
+        if (issue.completedAt) {
+          const completedDate = new Date(issue.completedAt);
+          completedDate.setHours(0, 0, 0, 0);
+          if (completedDate >= weekStart) {
+            done.push(issueInfo);
+            continue;
+          }
+        }
+
+        // In Review
+        if (issue.state.type === 'started' && issue.state.name === 'In Review') {
+          inReview.push(issueInfo);
+          continue;
+        }
+
+        // In Progress
+        if (issue.state.type === 'started' && issue.state.name === 'In Progress') {
+          inProgress.push(issueInfo);
+          continue;
+        }
+
+        // Planned issues in cycles (next, current, or past cycles with unstarted state)
+        if (issue.cycle) {
+          const cycleStartDate = new Date(issue.cycle.startsAt);
+          const cycleEndDate = new Date(issue.cycle.endsAt);
+          cycleStartDate.setHours(0, 0, 0, 0);
+          cycleEndDate.setHours(23, 59, 59, 999);
+
+          const isNextCycle = cycleStartDate > today;
+          const isCurrentCycle = cycleStartDate <= today && cycleEndDate >= today;
+          const isPastCyclePlanned = cycleEndDate < today && issue.state.type === 'unstarted';
+
+          if (isNextCycle || isCurrentCycle || isPastCyclePlanned) {
+            nextCycle.push({
+              ...issueInfo,
+              cycle: { number: issue.cycle.number },
+            });
+          }
+        }
+      }
+
+      return { done, inReview, inProgress, nextCycle };
+    } catch (error) {
+      console.error('Error fetching project issues:', error);
+      return { done: [], inReview: [], inProgress: [], nextCycle: [] };
+    }
+  }
+
+   async linkSlackThread(
+     issueId: string,
+     slackUrl: string,
+     syncToCommentThread: boolean = true
+   ): Promise<{ success: boolean; error?: string }> {
+     try {
+       const result = await this.query<{
+         attachmentLinkSlack: {
+           success: boolean;
+           attachment?: {
+             id: string;
+           };
+         };
+       }>(
+         `
+         mutation AttachmentLinkSlack($issueId: String!, $url: String!, $syncToCommentThread: Boolean) {
+           attachmentLinkSlack(issueId: $issueId, url: $url, syncToCommentThread: $syncToCommentThread) {
+             success
+             attachment {
+               id
+             }
+           }
+         }
+       `,
+         {
+           issueId,
+           url: slackUrl,
+           syncToCommentThread,
+         }
+       );
+
+       if (result.attachmentLinkSlack.success) {
+         console.log(`Linked Slack thread to issue ${issueId}`);
+         return { success: true };
+       }
+
+       return { success: false, error: 'Slack link failed' };
+     } catch (error) {
+       return {
+         success: false,
+         error: error instanceof Error ? error.message : 'Unknown error',
+       };
+     }
+   }
+
+   /**
+    * Get initiatives where the user is owner/lead
+    */
+   async getMyLeadInitiatives(linearUserId: string): Promise<Array<{
+     id: string;
+     name: string;
+     description: string | null;
+     url: string;
+   }>> {
+     try {
+       const result = await this.query<{
+         initiatives: {
+           nodes: Array<{
+             id: string;
+             name: string;
+             description: string | null;
+             url: string;
+           }>;
+         };
+       }>(`
+         query GetMyLeadInitiatives($userId: ID!) {
+           initiatives(filter: { owner: { id: { eq: $userId } } }) {
+             nodes {
+               id
+               name
+               description
+               url
+             }
+           }
+         }
+       `, { userId: linearUserId });
+
+       return result.initiatives.nodes;
+     } catch (error) {
+       console.error('Error fetching lead initiatives:', error);
+       return [];
+     }
+   }
+
+   /**
+    * Get initiative with all projects and their recent updates in one query
+    */
+   async getInitiativeWithUpdates(initiativeId: string): Promise<{
+     id: string;
+     name: string;
+     projects: Array<{
+       id: string;
+       name: string;
+       url: string;
+       updates: Array<{
+         id: string;
+         body: string;
+         createdAt: string;
+         userName: string;
+       }>;
+     }>;
+   } | null> {
+     try {
+       const result = await this.query<{
+         initiative: {
+           id: string;
+           name: string;
+           projects: {
+             nodes: Array<{
+               id: string;
+               name: string;
+               url: string;
+               projectUpdates: {
+                 nodes: Array<{
+                   id: string;
+                   body: string;
+                   createdAt: string;
+                   user: { name: string };
+                 }>;
+               };
+             }>;
+           };
+         };
+       }>(`
+         query GetInitiativeWithUpdates($initiativeId: String!) {
+           initiative(id: $initiativeId) {
+             id
+             name
+             projects {
+               nodes {
+                 id
+                 name
+                 url
+                 projectUpdates(first: 5) {
+                   nodes {
+                     id
+                     body
+                     createdAt
+                     user { name }
+                   }
+                 }
+               }
+             }
+           }
+         }
+       `, { initiativeId });
+
+       return {
+         id: result.initiative.id,
+         name: result.initiative.name,
+         projects: result.initiative.projects.nodes.map(p => ({
+           id: p.id,
+           name: p.name,
+           url: p.url,
+           updates: p.projectUpdates.nodes.map(u => ({
+             id: u.id,
+             body: u.body,
+             createdAt: u.createdAt,
+             userName: u.user.name,
+           })),
+         })),
+       };
+     } catch (error) {
+       console.error('Error fetching initiative with updates:', error);
+       return null;
+     }
+   }
+
+   /**
+    * Get projects under an initiative (legacy - use getInitiativeWithUpdates instead)
+    */
+   async getInitiativeProjects(initiativeId: string): Promise<Array<{
+     id: string;
+     name: string;
+     url: string;
+     state: string;
+   }>> {
+     try {
+       const result = await this.query<{
+         initiative: {
+           projects: {
+             nodes: Array<{
+               id: string;
+               name: string;
+               url: string;
+               state: string;
+             }>;
+           };
+         };
+       }>(`
+         query GetInitiativeProjects($initiativeId: String!) {
+           initiative(id: $initiativeId) {
+             projects {
+               nodes {
+                 id
+                 name
+                 url
+                 state
+               }
+             }
+           }
+         }
+       `, { initiativeId });
+
+       return result.initiative.projects.nodes;
+     } catch (error) {
+       console.error('Error fetching initiative projects:', error);
+       return [];
+     }
+   }
+
+   /**
+    * Get project updates created after a specific date
+    * Note: Linear API's project.projectUpdates doesn't support filter argument,
+    * so we fetch all recent updates and filter by date in JavaScript
+    */
+   async getProjectUpdates(projectId: string, since: Date): Promise<Array<{
+     id: string;
+     body: string;
+     createdAt: string;
+     url: string;
+     user: {
+       id: string;
+       name: string;
+     };
+   }>> {
+     try {
+       const result = await this.query<{
+         project: {
+           projectUpdates: {
+             nodes: Array<{
+               id: string;
+               body: string;
+               createdAt: string;
+               url: string;
+               user: {
+                 id: string;
+                 name: string;
+               };
+             }>;
+           };
+         };
+       }>(`
+         query GetProjectUpdates($projectId: String!) {
+           project(id: $projectId) {
+             projectUpdates(first: 20) {
+               nodes {
+                 id
+                 body
+                 createdAt
+                 url
+                 user {
+                   id
+                   name
+                 }
+               }
+             }
+           }
+         }
+       `, { projectId });
+
+       // Filter by date in JavaScript since Linear API doesn't support filter on projectUpdates
+       const sinceTime = since.getTime();
+       return result.project.projectUpdates.nodes.filter(
+         (update) => new Date(update.createdAt).getTime() >= sinceTime
+       );
+     } catch (error) {
+       console.error('Error fetching project updates:', error);
+       return [];
+     }
+   }
 }

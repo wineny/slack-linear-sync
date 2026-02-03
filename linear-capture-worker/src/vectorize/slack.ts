@@ -35,8 +35,15 @@ interface SlackUser {
 }
 
 function resolveUserMentions(text: string, userMap: Map<string, string>): string {
+  const mentions = text.match(/<@([A-Z0-9]+)>/g);
+  if (mentions && mentions.length > 0) {
+    console.log('[resolveUserMentions] Found mentions:', mentions, 'userMap size:', userMap.size);
+  }
   return text.replace(/<@([A-Z0-9]+)>/g, (match, userId) => {
     const displayName = userMap.get(userId);
+    if (mentions && mentions.length > 0) {
+      console.log('[resolveUserMentions] Resolving', userId, '->', displayName || 'NOT FOUND');
+    }
     return displayName ? `@${displayName}` : match;
   });
 }
@@ -52,7 +59,10 @@ async function fetchUserMap(accessToken: string): Promise<Map<string, string>> {
     const data = await response.json() as {
       ok: boolean;
       members?: SlackUser[];
+      error?: string;
     };
+
+    console.log('[fetchUserMap] API response ok:', data.ok, 'members count:', data.members?.length || 0, 'error:', data.error);
 
     if (data.ok && data.members) {
       for (const user of data.members) {
@@ -63,9 +73,10 @@ async function fetchUserMap(accessToken: string): Promise<Map<string, string>> {
           user.name;
         userMap.set(user.id, displayName);
       }
+      console.log('[fetchUserMap] Built userMap with', userMap.size, 'users');
     }
   } catch (error) {
-    // Silently continue if user fetch fails
+    console.error('[fetchUserMap] Error:', error);
   }
 
   return userMap;

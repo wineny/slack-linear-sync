@@ -9,14 +9,29 @@ LINEAR_TEAM_ID = "e108ae14-a354-4c09-86ac-6c1186bc6132"
 LINEAR_DEFAULT_STATE_ID = "6dc4154e-3a35-43d2-ac44-e3d66df85c9b"
 LINEAR_DONE_STATE_ID = "8af3af6f-d60f-4d57-bac2-fcd557488d93"
 DONE_EMOJI = "해결"
+ISSUE_EMOJI = "issue"
+AI_WORKER_URL = "https://linear-capture-ai.ny-4f1.workers.dev"
+
+# 뽀시래기 프로젝트/마일스톤 자동 설정
+PPOSIRAEGI_PROJECT_ID = "9c2623fd-fd86-439e-a6a0-0d00a46dd552"
+PPOSIRAEGI_MILESTONE_ID = "447f5516-83cf-488f-bca5-e56dfddb5e14"
 
 # KV namespace for issue mapping (Slack message -> Linear issue)
 [[kv_namespaces]]
 binding = "ISSUE_MAPPINGS"
 id = "a8e8f26167fb4d3ab5f551c7727501d3"
 
+# KV namespace for OAuth tokens (shared with linear-rona-bot)
+[[kv_namespaces]]
+binding = "LINEAR_TOKENS"
+id = "7436de4f48264cf398cea9eeb3b89057"
+
+# Daily token health check - 09:00 KST (00:00 UTC)
+[triggers]
+crons = ["0 0 * * *"]
+
 # Secrets (set via wrangler secret put):
 # - SLACK_BOT_TOKEN
 # - SLACK_SIGNING_SECRET
-# - LINEAR_API_TOKEN
+# - LINEAR_API_TOKEN (deprecated, use LINEAR_TOKENS KV instead)
 # - ANTHROPIC_API_KEY

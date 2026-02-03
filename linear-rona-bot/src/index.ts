@@ -3,6 +3,7 @@ import type { Bindings } from './types/index.js';
 import oauth from './routes/oauth.js';
 import webhook from './routes/webhook.js';
 import { handleCycleReminder } from './cron/cycle-reminder.js';
+import { rebuildProjectCache } from './handlers/project-cache.js';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -26,6 +27,23 @@ app.get('/cron/trigger', async (c) => {
   console.log('Manual cron trigger');
   await handleCycleReminder(c.env);
   return c.json({ success: true, message: 'Cron executed' });
+});
+
+// 프로젝트 캐시 재구축
+app.get('/cache/rebuild', async (c) => {
+  try {
+    console.log('Manual cache rebuild triggered');
+    const projects = await rebuildProjectCache(c.env);
+    return c.json({
+      success: true,
+      message: 'Cache rebuilt',
+      projectCount: projects.length,
+      projects: projects.map(p => ({ name: p.name, team: p.teamName, keywords: p.keywords })),
+    });
+  } catch (err) {
+    console.error('Cache rebuild failed:', err);
+    return c.json({ success: false, error: String(err) }, 500);
+  }
 });
 
 // Cloudflare Workers export

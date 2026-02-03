@@ -137,6 +137,53 @@ export class LinearGraphQLClient {
   }
 
   /**
+   * 활성 프로젝트 조회 (started, planned 상태)
+   */
+  async getActiveProjects(): Promise<Array<{
+    id: string;
+    name: string;
+    description?: string;
+    state: string;
+    teams?: { nodes: Array<{ id: string; name: string }> };
+  }>> {
+    const data = await this.query<{
+      projects: { nodes: Array<{
+        id: string;
+        name: string;
+        description?: string;
+        state: string;
+        teams: { nodes: Array<{ id: string; name: string }> };
+      }> };
+    }>(`
+      query GetActiveProjects {
+        projects(
+          filter: {
+            or: [
+              { state: { eq: "started" } },
+              { state: { eq: "planned" } }
+            ]
+          }
+        ) {
+          nodes {
+            id
+            name
+            description
+            state
+            teams {
+              nodes {
+                id
+                name
+              }
+            }
+          }
+        }
+      }
+    `);
+
+    return data.projects?.nodes ?? [];
+  }
+
+  /**
    * 과거 Cycle 목록 조회 (endsAt이 지난 것들)
    */
   async getPastCycles(teamId: string, limit = 5): Promise<CycleInfo[]> {

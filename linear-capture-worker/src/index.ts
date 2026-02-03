@@ -3,6 +3,8 @@ import type { TextAnalysisRequest, TextAnalysisResult, PromptContext } from './p
 import { storeTokens, getTokens, deleteTokens, validateParams, type OAuthTokens, type TokenStorageEnv } from './oauth/token-storage.js';
 import { handleSlackAuth, handleSlackCallback, handleSlackChannels, handleSlackStatus, handleSlackDisconnect, type SlackEnv } from './slack/oauth.js';
 import { handleSlackSearch } from './slack/search.js';
+import { handleSlackHistory } from './slack/history.js';
+import { handleSlackUsers } from './slack/users.js';
 import { handleNotionAuth, handleNotionCallback, handleNotionStatus, handleNotionDisconnect, type NotionEnv } from './notion/oauth.js';
 import { handleNotionSearch } from './notion/search.js';
 import { handleNotionBlocks } from './notion/blocks.js';
@@ -14,10 +16,14 @@ import { handleNotionIndex } from './vectorize/notion.js';
 import { handleLinearIndex } from './vectorize/linear.js';
 import { handleRecommend } from './vectorize/recommend.js';
 import type { VectorizeEnv } from './vectorize/index.js';
+import { handleTrack, type AnalyticsEnv } from './analytics/track.js';
+import { handleSearch, type SearchEnv } from './search/stateless.js';
+import { handleEmbeddings } from './embeddings-openai.js';
 
-interface Env extends VectorizeEnv {
+interface Env extends VectorizeEnv, AnalyticsEnv, SearchEnv {
   GEMINI_API_KEY: string;
   ANTHROPIC_API_KEY: string;
+  OPENAI_API_KEY: string;
   R2_BUCKET: R2Bucket;
   R2_PUBLIC_URL: string;
   OAUTH_TOKENS: KVNamespace;
@@ -106,11 +112,19 @@ export default {
         return await handleSlackDisconnect(request, env as SlackEnv, corsHeaders);
       }
 
-      if (path === '/slack/search' && request.method === 'GET') {
-        return await handleSlackSearch(request, env as SlackEnv, corsHeaders);
-      }
+       if (path === '/slack/search' && request.method === 'GET') {
+         return await handleSlackSearch(request, env as SlackEnv, corsHeaders);
+       }
 
-      if (path === '/slack/oauth-redirect' && request.method === 'GET') {
+       if (path === '/slack/history' && request.method === 'GET') {
+         return await handleSlackHistory(request, env as SlackEnv, corsHeaders);
+       }
+
+       if (path === '/slack/users' && request.method === 'GET') {
+         return await handleSlackUsers(request, env as SlackEnv, corsHeaders);
+       }
+
+       if (path === '/slack/oauth-redirect' && request.method === 'GET') {
         const code = url.searchParams.get('code');
         const state = url.searchParams.get('state');
         const error = url.searchParams.get('error');
@@ -297,7 +311,19 @@ export default {
         return await handleRecommend(request, env, corsHeaders);
       }
 
-      if (request.method !== 'POST') {
+      if (path === '/search' && request.method === 'POST') {
+        return await handleSearch(request, env, corsHeaders);
+      }
+
+       if (path === '/track' && request.method === 'POST') {
+         return await handleTrack(request, env, corsHeaders);
+       }
+
+       if (path === '/embeddings' && request.method === 'POST') {
+         return await handleEmbeddings(request, env, corsHeaders);
+       }
+
+       if (request.method !== 'POST') {
         return new Response(JSON.stringify({ error: 'Method not allowed' }), {
           status: 405,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },

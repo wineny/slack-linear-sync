@@ -7,6 +7,57 @@
 
 ---
 
+## linear-mcp-fast (로컬 캐시 리더) - 우선 사용
+
+Linear 데이터 **읽기 작업**은 `linear-mcp-fast` MCP 도구를 우선 사용할 것.
+Linear.app의 로컬 IndexedDB 캐시를 직접 읽어서 **API 호출 없이 즉시 조회** 가능.
+
+### 언제 사용?
+
+| 작업 | linear-mcp-fast | Linear API |
+|------|-----------------|------------|
+| 이슈 목록 조회 | **우선 사용** | - |
+| 이슈 상세 조회 | **우선 사용** | - |
+| 프로젝트 목록/상세 | **우선 사용** | - |
+| 이니셔티브 목록/상세 | **우선 사용** | - |
+| 사이클 목록 | **우선 사용** | - |
+| 팀/사용자 정보 | **우선 사용** | - |
+| 워크플로우 상태 | **우선 사용** | - |
+| **이슈 생성** | - | API 필수 |
+| **이슈 수정** | - | API 필수 |
+| **댓글 작성** | - | API 필수 |
+
+### 사용 가능한 도구
+
+| 도구 | 설명 |
+|------|------|
+| `list_issues` | 이슈 목록 (필터: team, state_type, assignee, priority) |
+| `get_issue` | 이슈 상세 (identifier로 조회, 예: EDU-123) |
+| `list_my_issues` | 특정 사용자의 이슈 |
+| `list_teams` / `get_team` | 팀 정보 |
+| `list_projects` / `get_project` | 프로젝트 정보 |
+| `list_initiatives` / `get_initiative` | 이니셔티브 정보 |
+| `list_cycles` | 팀별 사이클 목록 |
+| `list_users` / `get_user` | 사용자 정보 |
+| `list_issue_statuses` | 팀별 워크플로우 상태 |
+
+### 데이터 현황
+
+- Teams: 2개 (EDU, DEV)
+- Users: 34명
+- Issues: ~5,000+개
+- Projects: 188개
+- Initiatives: 37개
+- Cycles: 37개
+
+### 주의사항
+
+- **읽기 전용**: 쓰기 작업(이슈 생성, 댓글)은 Linear API 사용
+- **데이터 신선도**: Linear.app이 열려있으면 실시간 동기화, 종료 시 마지막 동기화 시점
+- **macOS 전용**: `~/Library/Application Support/Linear/` 캐시 사용
+
+---
+
 ## Linear 프로젝트 캐시
 
 프로젝트 이름으로 요청 시 아래 테이블에서 ID를 먼저 찾아서 사용할 것. API 호출 최소화.

@@ -9,7 +9,7 @@ const SLACK_TOKEN_URL = 'https://slack.com/api/oauth.v2.access';
 const SLACK_CHANNELS_URL = 'https://slack.com/api/conversations.list';
 const SLACK_AUTH_TEST_URL = 'https://slack.com/api/auth.test';
 
-const USER_SCOPES = ['search:read', 'channels:read', 'users:read'];
+const USER_SCOPES = ['search:read', 'channels:read', 'channels:history', 'groups:read', 'groups:history', 'users:read'];
 
 export interface SlackEnv extends TokenStorageEnv {
   SLACK_CLIENT_ID: string;

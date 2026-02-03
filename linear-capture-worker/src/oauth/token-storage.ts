@@ -90,9 +90,13 @@ export async function storeTokens(
   const key = buildKey(deviceId, service);
   const encrypted = await encryptTokens(tokens, env.TOKEN_ENCRYPTION_KEY);
   
-  const expirationTtl = tokens.expires_at 
-    ? Math.max(tokens.expires_at - Math.floor(Date.now() / 1000), 60)
-    : undefined;
+  // refresh_token이 있으면 영구 보관 (토큰 갱신이 가능하므로)
+  // refresh_token이 없고 expires_at이 있으면 해당 시간에 만료
+  const expirationTtl = tokens.refresh_token 
+    ? undefined  // 영구 보관 - refresh_token으로 갱신 가능
+    : tokens.expires_at 
+      ? Math.max(tokens.expires_at - Math.floor(Date.now() / 1000), 60)
+      : undefined;
   
   await env.OAUTH_TOKENS.put(key, encrypted, {
     expirationTtl: expirationTtl ? Math.min(expirationTtl, 365 * 24 * 60 * 60) : undefined,

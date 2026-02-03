@@ -55,6 +55,24 @@ export interface UserConfig {
   updatedAt: string;
 }
 
+// 프로젝트 캐시
+export interface CachedProject {
+  id: string;
+  name: string;
+  teamId: string;
+  teamName: string;
+  state: string;
+  keywords: string[];
+}
+
+export interface ProjectCache {
+  version: number;
+  updatedAt: string;
+  projects: CachedProject[];
+}
+
+export const PROJECT_CACHE_KEY = 'PROJECT_CACHE:all';
+
 // 팀 정보
 export interface TeamInfo {
   id: string;

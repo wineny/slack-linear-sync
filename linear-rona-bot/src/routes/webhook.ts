@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { LinearClient } from '@linear/sdk';
 import type { Bindings, UserConfig } from '../types/index.js';
 import { parseUserCommand, getCommandResponse } from '../handlers/user-config.js';
+import { handleProjectEvent } from '../handlers/project-cache.js';
 
 const webhook = new Hono<{ Bindings: Bindings }>();
 
@@ -26,6 +27,17 @@ webhook.post('/', async (c) => {
     console.log('Issue ID:', payload.data?.id);
     console.log('Issue Title:', payload.data?.title);
     console.log('Cycle:', payload.data?.cycle?.number ?? 'None');
+  }
+
+  // Project 이벤트 → 캐시 업데이트
+  if (payload.type === 'Project') {
+    try {
+      await handleProjectEvent(payload, c.env);
+      return c.json({ success: true, type: 'project_cache_updated' });
+    } catch (err) {
+      console.error('Failed to handle project event:', err);
+      return c.json({ success: false, error: String(err) }, 500);
+    }
   }
 
   // 봇 멘션 (AppUserNotification)
