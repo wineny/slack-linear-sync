@@ -1,5 +1,5 @@
 export interface PromptContext {
-  projects?: Array<{ id: string; name: string; description?: string }>;
+  projects?: Array<{ id: string; name: string; description?: string; recentIssueTitles?: string[] }>;
   users?: Array<{ id: string; name: string }>;
   instruction?: string;
   language?: string;

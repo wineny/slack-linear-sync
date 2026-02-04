@@ -10,7 +10,14 @@ function buildContextSection(context: PromptContext | undefined, t: ReturnType<t
   if (!context) return '';
 
   const projectList = context.projects
-    ?.map((p) => `- "${p.name}" (ID: ${p.id})${p.description ? ` - ${p.description}` : ''}`)
+    ?.map((p) => {
+      let line = `- "${p.name}" (ID: ${p.id})${p.description ? ` - ${p.description}` : ''}`;
+      if (p.recentIssueTitles?.length) {
+        const titles = p.recentIssueTitles.slice(0, 5).join(', ');
+        line += `\n  최근 이슈: ${titles}`;
+      }
+      return line;
+    })
     .join('\n') || t.contextSection.noProjects;
 
   return `
