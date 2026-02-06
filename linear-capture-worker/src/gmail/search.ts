@@ -48,6 +48,36 @@ function parseFromHeader(from: string): { name: string; email: string } {
   return { name: from, email: from };
 }
 
+async function pMap<T, R>(
+  items: T[],
+  fn: (item: T) => Promise<R>,
+  concurrency: number
+): Promise<(R | null)[]> {
+  const results: (R | null)[] = new Array(items.length).fill(null);
+  const executing = new Set<Promise<void>>();
+
+  for (const [index, item] of items.entries()) {
+    const p = fn(item)
+      .then(result => {
+        results[index] = result;
+      })
+      .catch(() => {
+        results[index] = null;
+      });
+
+    executing.add(p);
+
+    const clean = p.finally(() => executing.delete(p));
+
+    if (executing.size >= concurrency) {
+      await Promise.race(executing);
+    }
+  }
+
+  await Promise.all(executing);
+  return results;
+}
+
 export async function handleGmailSearch(
   request: Request,
   env: GmailEnv,
@@ -130,46 +160,55 @@ export async function handleGmailSearch(
       );
     }
 
-    const messages: GmailMessage[] = [];
+    // Build URLSearchParams once (same for all messages)
+    const getParams = new URLSearchParams({
+      format: 'metadata',
+      metadataHeaders: 'Subject',
+    });
+    getParams.append('metadataHeaders', 'From');
+    getParams.append('metadataHeaders', 'Date');
 
-    for (const msg of listData.messages) {
-      const getParams = new URLSearchParams({
-        format: 'metadata',
-        metadataHeaders: 'Subject',
-      });
-      getParams.append('metadataHeaders', 'From');
-      getParams.append('metadataHeaders', 'Date');
+    // Fetch all messages in parallel with concurrency limit of 10
+    const fetchedMessages = await pMap(
+      listData.messages,
+      async (msg) => {
+        const msgResponse = await fetch(
+          `${GMAIL_MESSAGES_URL}/${msg.id}?${getParams.toString()}`,
+          {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${tokenResult.token}`,
+            },
+          }
+        );
 
-      const msgResponse = await fetch(
-        `${GMAIL_MESSAGES_URL}/${msg.id}?${getParams.toString()}`,
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${tokenResult.token}`,
-          },
+        if (!msgResponse.ok) {
+          return null;
         }
-      );
 
-      if (!msgResponse.ok) {
-        continue;
-      }
+        const msgData: GmailMessageResponse = await msgResponse.json();
+        const headers = msgData.payload?.headers || [];
 
-      const msgData: GmailMessageResponse = await msgResponse.json();
-      const headers = msgData.payload?.headers || [];
+        const subjectHeader = headers.find(h => h.name.toLowerCase() === 'subject');
+        const fromHeader = headers.find(h => h.name.toLowerCase() === 'from');
+        const dateHeader = headers.find(h => h.name.toLowerCase() === 'date');
 
-      const subjectHeader = headers.find(h => h.name.toLowerCase() === 'subject');
-      const fromHeader = headers.find(h => h.name.toLowerCase() === 'from');
-      const dateHeader = headers.find(h => h.name.toLowerCase() === 'date');
+        return {
+          id: msgData.id,
+          threadId: msgData.threadId,
+          subject: subjectHeader?.value || '(No Subject)',
+          from: parseFromHeader(fromHeader?.value || ''),
+          date: dateHeader?.value || '',
+          snippet: msgData.snippet || '',
+        };
+      },
+      10
+    );
 
-      messages.push({
-        id: msgData.id,
-        threadId: msgData.threadId,
-        subject: subjectHeader?.value || '(No Subject)',
-        from: parseFromHeader(fromHeader?.value || ''),
-        date: dateHeader?.value || '',
-        snippet: msgData.snippet || '',
-      });
-    }
+    // Filter out null values (failed fetches)
+    const messages: GmailMessage[] = fetchedMessages.filter(
+      (msg): msg is GmailMessage => msg !== null
+    );
 
     return new Response(
       JSON.stringify({
