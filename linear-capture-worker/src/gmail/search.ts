@@ -111,45 +111,80 @@ export async function handleGmailSearch(
   }
 
   try {
-    const listParams = new URLSearchParams({
-      q: query,
-      maxResults,
-    });
+    // Collect message IDs using pagination (Gmail API may return fewer than maxResults per page)
+    const maxResultsNum = parseInt(maxResults, 10);
+    const allMessageIds: Array<{ id: string; threadId: string }> = [];
+    let pageToken: string | undefined;
+    let estimatedTotal: number | undefined;
+    let listPageCount = 0;
 
-    const listResponse = await fetch(
-      `${GMAIL_MESSAGES_URL}?${listParams.toString()}`,
-      {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${tokenResult.token}`,
-        },
+    console.log(`[Gmail Search] query="${query}" maxResults=${maxResultsNum}`);
+
+    while (allMessageIds.length < maxResultsNum) {
+      const remaining = maxResultsNum - allMessageIds.length;
+      const listParams = new URLSearchParams({
+        q: query,
+        maxResults: String(Math.min(remaining, 500)),
+      });
+      if (pageToken) {
+        listParams.set('pageToken', pageToken);
       }
-    );
 
-    if (!listResponse.ok) {
-      const errorData = await listResponse.json() as { error?: { code: number; message: string; status: string } };
-      console.error('Gmail list failed:', errorData);
+      const listResponse = await fetch(
+        `${GMAIL_MESSAGES_URL}?${listParams.toString()}`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${tokenResult.token}`,
+          },
+        }
+      );
 
-      if (listResponse.status === 401 || errorData.error?.code === 401) {
-        await deleteTokens(env, deviceId, 'gmail');
+      if (!listResponse.ok) {
+        const errorData = await listResponse.json() as { error?: { code: number; message: string; status: string } };
+        console.error('Gmail list failed:', errorData);
+
+        if (listResponse.status === 401 || errorData.error?.code === 401) {
+          await deleteTokens(env, deviceId, 'gmail');
+          return new Response(
+            JSON.stringify({ success: false, error: 'Gmail token revoked. Please reconnect.' }),
+            { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
         return new Response(
-          JSON.stringify({ success: false, error: 'Gmail token revoked. Please reconnect.' }),
-          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          JSON.stringify({
+            success: false,
+            error: errorData.error?.message || 'Failed to search messages',
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: errorData.error?.message || 'Failed to search messages',
-        }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      const listData: GmailListResponse = await listResponse.json();
+      listPageCount++;
+
+      if (estimatedTotal === undefined && listData.resultSizeEstimate) {
+        estimatedTotal = listData.resultSizeEstimate;
+        console.log(`[Gmail Search] estimatedTotal=${estimatedTotal}`);
+      }
+
+      if (!listData.messages || listData.messages.length === 0) {
+        console.log(`[Gmail Search] Page ${listPageCount}: 0 messages, stopping`);
+        break;
+      }
+
+      allMessageIds.push(...listData.messages);
+      console.log(`[Gmail Search] Page ${listPageCount}: ${listData.messages.length} IDs (total collected: ${allMessageIds.length}, hasMore: ${!!listData.nextPageToken})`);
+
+      if (!listData.nextPageToken) {
+        break;
+      }
+
+      pageToken = listData.nextPageToken;
     }
 
-    const listData: GmailListResponse = await listResponse.json();
-
-    if (!listData.messages || listData.messages.length === 0) {
+    if (allMessageIds.length === 0) {
       return new Response(
         JSON.stringify({
           success: true,
@@ -160,6 +195,10 @@ export async function handleGmailSearch(
       );
     }
 
+    // Trim to exact maxResults count
+    const messageIds = allMessageIds.slice(0, maxResultsNum);
+
+    // Fetch message details
     // Build URLSearchParams once (same for all messages)
     const getParams = new URLSearchParams({
       format: 'metadata',
@@ -170,7 +209,7 @@ export async function handleGmailSearch(
 
     // Fetch all messages in parallel with concurrency limit of 10
     const fetchedMessages = await pMap(
-      listData.messages,
+      messageIds,
       async (msg) => {
         const msgResponse = await fetch(
           `${GMAIL_MESSAGES_URL}/${msg.id}?${getParams.toString()}`,
@@ -210,11 +249,15 @@ export async function handleGmailSearch(
       (msg): msg is GmailMessage => msg !== null
     );
 
+    console.log(`[Gmail Search] Returning ${messages.length} messages (${messageIds.length} IDs collected, ${listPageCount} pages, estimatedTotal=${estimatedTotal})`);
+
     return new Response(
       JSON.stringify({
         success: true,
         messages,
-        total: listData.resultSizeEstimate || messages.length,
+        total: messages.length,
+        estimatedTotal,
+        _debug: { idsCollected: messageIds.length, listPages: listPageCount },
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
