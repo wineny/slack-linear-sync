@@ -9,56 +9,10 @@ interface ProjectResult {
   items: string[];
 }
 
-function cleanForSlack(text: string): string {
-  return text
-    .replace(/\*\*/g, '')
-    .replace(/##/g, '')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
-function parseUpdateSections(body: string): { done: string[]; todo: string[] } {
-  const result = { done: [] as string[], todo: [] as string[] };
-  
-  const donePatterns = [
-    /\*\*만든 결과물?\*\*\s*([\s\S]*?)(?=\*\*만들 결과물?\*\*|$)/i,
-    /##\s*만든 결과물?\s*([\s\S]*?)(?=##\s*만들 결과물?|$)/i,
-    /만든 결과물?[:\s]*([\s\S]*?)(?=만들 결과물?|$)/i,
-  ];
-  
-  const todoPatterns = [
-    /\*\*만들 결과물?\*\*\s*([\s\S]*?)$/i,
-    /##\s*만들 결과물?\s*([\s\S]*?)$/i,
-    /만들 결과물?[:\s]*([\s\S]*?)$/i,
-  ];
-  
-  for (const pattern of donePatterns) {
-    const match = body.match(pattern);
-    if (match && match[1]?.trim()) {
-      result.done = extractBulletItems(cleanForSlack(match[1].trim()));
-      break;
-    }
-  }
-  
-  for (const pattern of todoPatterns) {
-    const match = body.match(pattern);
-    if (match && match[1]?.trim()) {
-      result.todo = extractBulletItems(cleanForSlack(match[1].trim()));
-      break;
-    }
-  }
-  
-  return result;
-}
-
-function extractBulletItems(text: string): string[] {
-  return text
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line.length > 0)
-    .map(line => line.replace(/^[\*\-•]\s*/, '').trim())
-    .filter(line => line.length > 0);
+interface ProjectUpdate {
+  projectName: string;
+  body: string;
+  createdAt: string;
 }
 
 function formatOutput(
@@ -129,9 +83,9 @@ export async function handleInitiativeUpdate(
     const weekStart = getWeekStart();
     const MAX_INITIATIVES = 5;
     const initiatives = allInitiatives.slice(0, MAX_INITIATIVES);
-    
-    const doneByProject: ProjectResult[] = [];
-    const todoByProject: ProjectResult[] = [];
+
+    // 이번 주 업데이트 수집 (원본 body)
+    const thisWeekUpdates: ProjectUpdate[] = [];
 
     console.log(`[DEBUG] weekStart: ${weekStart.toISOString()}`);
 
@@ -143,39 +97,34 @@ export async function handleInitiativeUpdate(
       console.log(`[DEBUG] Projects in initiative: ${data.projects.map(p => p.name).join(', ')}`);
 
       for (const project of data.projects) {
-        const thisWeekUpdates = project.updates.filter(
+        const projectThisWeekUpdates = project.updates.filter(
           u => new Date(u.createdAt) >= weekStart
         );
 
-        console.log(`[DEBUG] ${project.name}: ${project.updates.length} total updates, ${thisWeekUpdates.length} this week`);
+        console.log(`[DEBUG] ${project.name}: ${project.updates.length} total updates, ${projectThisWeekUpdates.length} this week`);
 
-        if (thisWeekUpdates.length > 0) {
-          const latest = thisWeekUpdates[0];
-          const parsed = parseUpdateSections(latest.body);
-          
-          console.log(`[DEBUG] ${project.name} parsed: done=${parsed.done.length}, todo=${parsed.todo.length}`);
-          
-          if (parsed.done.length > 0) {
-            doneByProject.push({ name: project.name, items: parsed.done });
-          }
-          if (parsed.todo.length > 0) {
-            todoByProject.push({ name: project.name, items: parsed.todo });
-          }
+        if (projectThisWeekUpdates.length > 0) {
+          // 가장 최신 업데이트만 사용
+          const latest = projectThisWeekUpdates[0];
+          thisWeekUpdates.push({
+            projectName: project.name,
+            body: latest.body,
+            createdAt: latest.createdAt,
+          });
         }
       }
     }
 
-    console.log(`[DEBUG] Final: doneByProject=${doneByProject.map(p => p.name).join(', ')}`);
-    console.log(`[DEBUG] Final: todoByProject=${todoByProject.map(p => p.name).join(', ')}`);
+    console.log(`[DEBUG] Total updates collected: ${thisWeekUpdates.length}`);
 
-
-    if (doneByProject.length === 0 && todoByProject.length === 0) {
+    if (thisWeekUpdates.length === 0) {
       await sendSlackMessage(responseUrl, '📭 이번 주에 작성된 프로젝트 업데이트가 없습니다.');
       return;
     }
 
+    // AI가 원본 업데이트에서 완료/예정 항목 추출 + 요약
     const aiAnalyzer = new AIAnalyzer(env.ANTHROPIC_API_KEY);
-    const summarized = await aiAnalyzer.summarizeInitiativeUpdates(doneByProject, todoByProject);
+    const summarized = await aiAnalyzer.parseAndSummarizeUpdates(thisWeekUpdates);
 
     const output = formatOutput(summarized.done, summarized.todo);
     const moreText = allInitiatives.length > MAX_INITIATIVES 

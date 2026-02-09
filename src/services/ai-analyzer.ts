@@ -554,6 +554,103 @@ ${todoSection || '(없음)'}
     }
   }
 
+  /**
+   * Parse project updates and extract done/todo items using LLM
+   * Handles any format of update body
+   */
+  async parseAndSummarizeUpdates(
+    updates: Array<{
+      projectName: string;
+      body: string;
+      createdAt: string;
+    }>
+  ): Promise<{
+    done: Array<{ name: string; items: string[] }>;
+    todo: Array<{ name: string; items: string[] }>;
+  }> {
+    if (updates.length === 0) {
+      return { done: [], todo: [] };
+    }
+
+    const updatesText = updates
+      .map((u, i) => `### ${i + 1}. ${u.projectName} (${u.createdAt.split('T')[0]})\n${u.body}`)
+      .join('\n\n---\n\n');
+
+    const prompt = `다음은 Linear 프로젝트들의 이번 주 업데이트입니다. 각 업데이트에서 "완료한 것"과 "할 예정인 것"을 추출해주세요.
+
+## 프로젝트 업데이트 내용
+${updatesText}
+
+## 추출 규칙
+
+1. **완료한 것 (done)**: 이미 한 일, 성과, 결과물
+   - "~했다", "~완료", "~발행", "~제작", "성과", "결과" 등의 표현
+   - 과거형이나 완료 표현
+
+2. **할 예정인 것 (todo)**: 앞으로 할 일, 계획, 다음 단계
+   - "~할 예정", "~계획", "다음 주", "차주", "예정", "TODO" 등의 표현
+   - 미래형이나 계획 표현
+
+3. **요약 방식**:
+   - 각 프로젝트별로 핵심 2-3개 선택 (기본)
+   - 한 항목은 25자 이내로 간결하게
+   - 구체적인 결과물/작업명 위주
+
+4. **🔢 숫자/지표 성과는 반드시 포함** (매우 중요!):
+   - 조회수, 팔로워 수, 발행 개수, 전환율, 유입 수 등 **숫자가 포함된 성과**
+   - 숫자 성과가 있으면 불릿을 추가해서라도 꼭 포함
+   - 예: "글 3개, 카드뉴스 2개 발행", "스레드 조회 0.8만", "팔로워 2,035명"
+   - 숫자는 원본 그대로 유지 (반올림하지 말 것)
+
+5. **프로젝트 이름**: 입력된 프로젝트 이름을 그대로 사용
+
+6. **이슈 번호 제외**: EDU-1234, DEV-5678 같은 Linear 이슈 번호는 출력하지 않음
+
+## JSON 응답 형식
+{
+  "done": [
+    {"name": "프로젝트명", "items": ["완료한 것 1", "완료한 것 2"]}
+  ],
+  "todo": [
+    {"name": "프로젝트명", "items": ["할 것 1", "할 것 2"]}
+  ]
+}
+
+주의:
+- 완료/예정이 명확하지 않은 내용은 제외
+- 프로젝트에 완료 항목만 있으면 done에만, 예정 항목만 있으면 todo에만 포함
+- JSON만 출력하세요.`;
+
+    try {
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 2048,
+        messages: [{ role: 'user', content: prompt }],
+      });
+
+      const content = response.content[0];
+      if (content.type !== 'text') {
+        console.error('Unexpected response type from AI');
+        return { done: [], todo: [] };
+      }
+
+      const jsonString = extractJSON(content.text);
+      if (!jsonString) {
+        console.error('Failed to extract JSON from AI response:', content.text);
+        return { done: [], todo: [] };
+      }
+
+      const parsed = JSON.parse(jsonString);
+      return {
+        done: parsed.done || [],
+        todo: parsed.todo || [],
+      };
+    } catch (error) {
+      console.error('AI parseAndSummarize error:', error);
+      return { done: [], todo: [] };
+    }
+  }
+
   static fallbackThreadAnalysis(
     messages: Array<{ author: string; text: string }>,
     slackPermalink?: string

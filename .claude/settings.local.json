@@ -6,7 +6,52 @@
       "Bash(npm run build:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "mcp__linear__linear_getInitiatives",
+      "mcp__linear__linear_getInitiativeById",
+      "Bash(node -e:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx wrangler tail:*)",
+      "WebSearch",
+      "Bash(echo:*)",
+      "Bash(python3:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ],
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '⚠️ TypeScript 타입 체크가 저장 후 자동 실행됩니다'"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(npx wrangler deploy*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "branch=$(git -C /Users/wine_ny/side-project/linear_project/slack-linear-sync rev-parse --abbrev-ref HEAD 2>/dev/null); if [ \"$branch\" != \"main\" ]; then echo '🚨 BLOCKED: 배포는 main 브랜치에서만 가능합니다 (현재: '$branch')' >&2; exit 1; fi"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/wine_ny/side-project/linear_project/slack-linear-sync && npx tsc --noEmit 2>&1 | head -20; if [ ${PIPESTATUS[0]} -ne 0 ]; then echo '❌ TypeScript 타입 에러 발견! 수정이 필요합니다.' >&2; exit 1; fi; echo '✅ TypeScript 타입 체크 통과'"
+          }
+        ]
+      }
     ]
   }
 }
