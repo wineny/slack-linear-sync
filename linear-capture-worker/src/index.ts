@@ -343,6 +343,23 @@ export default {
         });
       }
 
+      if (path === '/summarize-context' && request.method === 'POST') {
+        const body = await request.json() as {
+          items: Array<{ source: string; title: string; snippet: string; url?: string; timestamp?: string }>;
+          language?: string;
+        };
+        if (!body.items || body.items.length === 0) {
+          return new Response(JSON.stringify({ error: 'No items provided' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        const result = await summarizeContext(body.items, body.language || 'en', env.ANTHROPIC_API_KEY);
+        return new Response(JSON.stringify(result), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       if (path === '/analyze-text') {
         const body: TextAnalysisRequest = await request.json();
         if (!body.messages || body.messages.length === 0) {
@@ -392,6 +409,78 @@ export default {
     }
   },
 };
+
+async function summarizeContext(
+  items: Array<{ source: string; title: string; snippet: string; url?: string; timestamp?: string }>,
+  language: string,
+  apiKey: string
+): Promise<{ success: boolean; markdown: string; error?: string }> {
+  const itemsText = items.map((item, i) => {
+    const parts = [`[${i + 1}] Source: ${item.source}, Title: ${item.title}`];
+    if (item.timestamp) parts.push(`Date: ${item.timestamp}`);
+    if (item.snippet) parts.push(`Content: ${item.snippet}`);
+    if (item.url) parts.push(`URL: ${item.url}`);
+    return parts.join('\n');
+  }).join('\n\n');
+
+  const langInstruction = language === 'ko'
+    ? '한국어로 작성하세요.'
+    : language === 'en' ? 'Write in English.' : `Write in ${language}.`;
+
+  const prompt = `You are summarizing related context items to be appended to a Linear issue description.
+
+${langInstruction}
+
+Group items by source and summarize each into 2-5 bullet points. Use this exact markdown format:
+
+## Related Context
+
+### Slack ([#channel-name](url))
+- Key insight from this Slack thread
+- Another key point
+
+### Notion ([Page Title](url))
+- Key insight from this Notion page
+
+Rules:
+- Group by source type (Slack, Notion, Gmail, Linear)
+- Each source section: ### heading with source name and ONE representative link
+- Under each heading: 2-5 bullet points summarizing the key insights from that source
+- Each bullet: 1 concise sentence (max 100 chars) capturing actionable info
+- If a source has multiple items, combine them under one heading
+- If an item has no URL, omit the link: ### Slack
+- Focus on actionable information, decisions, and key facts
+- Do NOT include dates or metadata in bullets
+
+Items to summarize:
+${itemsText}`;
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    return { success: false, markdown: '', error: `API error: ${response.status}` };
+  }
+
+  const data = await response.json() as {
+    content?: Array<{ type: string; text?: string }>;
+  };
+  const markdown = data.content?.[0]?.type === 'text' ? data.content[0].text || '' : '';
+
+  return { success: true, markdown: markdown.trim() };
+}
 
 async function uploadToR2(request: UploadRequest, env: Env): Promise<UploadResult> {
   if (!request.images || request.images.length === 0) {
