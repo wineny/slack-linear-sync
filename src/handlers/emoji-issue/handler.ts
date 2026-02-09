@@ -161,6 +161,17 @@ export async function handleEmojiIssue(
 
   console.log(`Created Linear issue: ${issueResult.issueIdentifier}`);
 
+  // Store mapping for cancel/done reactions
+  if (env.ISSUE_MAPPINGS && issueResult.issueId) {
+    const mappingKey = `issue:${channel}:${messageTs}`;
+    await env.ISSUE_MAPPINGS.put(mappingKey, JSON.stringify({
+      issueId: issueResult.issueId,
+      issueIdentifier: issueResult.issueIdentifier,
+      createdBy: reactorUserId,
+    }), { expirationTtl: 30 * 24 * 60 * 60 });
+    console.log(`Stored issue mapping: ${mappingKey} -> ${issueResult.issueId}`);
+  }
+
   if (issueResult.issueId && permalink) {
     await linearClient.linkSlackThread(issueResult.issueId, permalink, true);
   }

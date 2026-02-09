@@ -242,6 +242,40 @@ export class LinearClient {
     }
   }
 
+  /**
+   * Delete an issue (moves to trash, recoverable for 30 days)
+   */
+  async deleteIssue(issueId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const result = await this.query<{
+        issueDelete: {
+          success: boolean;
+        };
+      }>(
+        `
+        mutation DeleteIssue($id: String!) {
+          issueDelete(id: $id) {
+            success
+          }
+        }
+      `,
+        { id: issueId }
+      );
+
+      if (result.issueDelete.success) {
+        console.log(`Issue ${issueId} deleted`);
+        return { success: true };
+      }
+
+      return { success: false, error: 'Issue deletion failed' };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
   async getProjects(): Promise<LinearProject[]> {
     const result = await this.query<{
       projects: { nodes: LinearProject[] };

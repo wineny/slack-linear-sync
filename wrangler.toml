@@ -10,6 +10,7 @@ LINEAR_DEFAULT_STATE_ID = "6dc4154e-3a35-43d2-ac44-e3d66df85c9b"
 LINEAR_DONE_STATE_ID = "8af3af6f-d60f-4d57-bac2-fcd557488d93"
 DONE_EMOJI = "해결"
 ISSUE_EMOJI = "issue"
+CANCEL_EMOJI = "x"
 AI_WORKER_URL = "https://linear-capture-ai.ny-4f1.workers.dev"
 
 # 뽀시래기 프로젝트/마일스톤 자동 설정

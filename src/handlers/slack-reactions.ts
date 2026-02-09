@@ -1,6 +1,7 @@
 import type { Env, SlackReactionEvent } from '../types/index.js';
 import { handleDone } from './pposiraegi/index.js';
 import { handleEmojiIssue } from './emoji-issue/index.js';
+import { handleCancel } from './cancel-handler.js';
 
 export async function handleSlackReaction(
   event: SlackReactionEvent,
@@ -18,6 +19,11 @@ export async function handleSlackReaction(
 
   if (event.reaction === env.DONE_EMOJI) {
     await handleDone(event, env);
+    return new Response('OK');
+  }
+
+  if (event.reaction === env.CANCEL_EMOJI) {
+    await handleCancel(event, env);
     return new Response('OK');
   }
 

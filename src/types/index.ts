@@ -7,6 +7,7 @@ export interface Env {
   LINEAR_DONE_STATE_ID: string;
   DONE_EMOJI: string;
   ISSUE_EMOJI: string;
+  CANCEL_EMOJI: string;
   AI_WORKER_URL: string;
 
   PPOSIRAEGI_PROJECT_ID?: string;

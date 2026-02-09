@@ -212,6 +212,7 @@ async function processQuestion(
     await env.ISSUE_MAPPINGS.put(mappingKey, JSON.stringify({
       issueId: issueResult.issueId,
       issueIdentifier: issueResult.issueIdentifier,
+      createdBy: event.user,
     }), { expirationTtl: 30 * 24 * 60 * 60 }); // 30 days
     console.log(`Stored issue mapping: ${mappingKey} -> ${issueResult.issueId}`);
   }
