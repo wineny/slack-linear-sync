@@ -464,29 +464,42 @@ async function analyzeText(
   return parseTextAnalysisResponse(text);
 }
 
-function parseTextAnalysisResponse(text: string): TextAnalysisResult {
-  const cleanedText = text
-    .replace(/```json\n?/g, '')
-    .replace(/```\n?/g, '')
-    .trim();
-
+function extractJson(text: string): Record<string, unknown> | null {
+  // Step 1: Strip code block markers and try direct parse
+  const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
   try {
-    const json = JSON.parse(cleanedText);
+    return JSON.parse(cleaned);
+  } catch { /* continue */ }
+
+  // Step 2: Extract first `{` to last `}` and try parse
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    try {
+      return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+    } catch { /* continue */ }
+  }
+
+  return null;
+}
+
+function parseTextAnalysisResponse(text: string): TextAnalysisResult {
+  const json = extractJson(text);
+  if (json) {
     return {
-      title: json.title || '',
-      description: json.description || '',
+      title: (json.title as string) || '',
+      description: (json.description as string) || '',
       success: true,
-      suggestedProjectId: json.projectId || undefined,
-      suggestedPriority: json.priority || undefined,
-    };
-  } catch {
-    return {
-      title: '',
-      description: text,
-      success: false,
-      error: 'Failed to parse JSON response',
+      suggestedProjectId: (json.projectId as string) || undefined,
+      suggestedPriority: (json.priority as number) || undefined,
     };
   }
+  return {
+    title: '',
+    description: text,
+    success: false,
+    error: 'Failed to parse JSON response',
+  };
 }
 
 async function analyzeWithGemini(
@@ -592,30 +605,24 @@ async function analyzeWithHaiku(
 }
 
 function parseJsonResponse(text: string): AnalysisResult {
-  const cleanedText = text
-    .replace(/```json\n?/g, '')
-    .replace(/```\n?/g, '')
-    .trim();
-
-  try {
-    const json = JSON.parse(cleanedText);
+  const json = extractJson(text);
+  if (json) {
     return {
-      title: json.title || '',
-      description: json.description || '',
+      title: (json.title as string) || '',
+      description: (json.description as string) || '',
       success: true,
-      suggestedProjectId: json.projectId || undefined,
-      suggestedAssigneeId: json.assigneeId || undefined,
-      suggestedPriority: json.priority || undefined,
-      suggestedEstimate: json.estimate || undefined,
-    };
-  } catch {
-    return {
-      title: '',
-      description: text,
-      success: false,
-      error: 'Failed to parse JSON response',
+      suggestedProjectId: (json.projectId as string) || undefined,
+      suggestedAssigneeId: (json.assigneeId as string) || undefined,
+      suggestedPriority: (json.priority as number) || undefined,
+      suggestedEstimate: (json.estimate as number) || undefined,
     };
   }
+  return {
+    title: '',
+    description: text,
+    success: false,
+    error: 'Failed to parse JSON response',
+  };
 }
 
 async function handleOAuthToken(
