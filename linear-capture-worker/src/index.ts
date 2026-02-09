@@ -16,11 +16,12 @@ import { handleNotionIndex } from './vectorize/notion.js';
 import { handleLinearIndex } from './vectorize/linear.js';
 import { handleRecommend } from './vectorize/recommend.js';
 import type { VectorizeEnv } from './vectorize/index.js';
-import { handleTrack, type AnalyticsEnv } from './analytics/track.js';
+import { handleTrack } from './analytics/track.js';
+import { handleAnalyticsQuery, type AnalyticsQueryEnv } from './analytics/query.js';
 import { handleSearch, type SearchEnv } from './search/stateless.js';
 import { handleEmbeddings } from './embeddings-openai.js';
 
-interface Env extends VectorizeEnv, AnalyticsEnv, SearchEnv {
+interface Env extends VectorizeEnv, AnalyticsQueryEnv, SearchEnv {
   GEMINI_API_KEY: string;
   ANTHROPIC_API_KEY: string;
   OPENAI_API_KEY: string;
@@ -77,7 +78,7 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     };
 
     if (request.method === 'OPTIONS') {
@@ -313,6 +314,10 @@ export default {
 
       if (path === '/search' && request.method === 'POST') {
         return await handleSearch(request, env, corsHeaders);
+      }
+
+      if (path === '/analytics' && request.method === 'GET') {
+        return await handleAnalyticsQuery(request, env, corsHeaders);
       }
 
        if (path === '/track' && request.method === 'POST') {

@@ -4,7 +4,7 @@
  */
 
 export interface TrackRequest {
-  event: 'app_open' | 'issue_created' | 'search_used' | 'context_linked' | 'api_error' | 'capture_failed' | 'analysis_failed';
+  event: 'app_open' | 'issue_created' | 'search_used' | 'context_linked' | 'api_error' | 'capture_failed' | 'analysis_failed' | 'tcc_reset' | 'onboarding_complete' | 'oauth_connected' | 'sync_completed';
   deviceId: string;
   metadata?: {
     imageCount?: number;
@@ -14,6 +14,9 @@ export interface TrackRequest {
     errorType?: string;
     message?: string;
     statusCode?: number;
+    source?: string;
+    resultCount?: number;
+    itemsSynced?: number;
   };
 }
 
@@ -26,7 +29,7 @@ export interface AnalyticsEnv {
   ANALYTICS_KV?: KVNamespace;
 }
 
-const VALID_EVENTS = ['app_open', 'issue_created', 'search_used', 'context_linked', 'api_error', 'capture_failed', 'analysis_failed'] as const;
+const VALID_EVENTS = ['app_open', 'issue_created', 'search_used', 'context_linked', 'api_error', 'capture_failed', 'analysis_failed', 'tcc_reset', 'onboarding_complete', 'oauth_connected', 'sync_completed'] as const;
 const DEVICE_ID_LENGTH = 8;
 const TTL_DAYS = 90;
 
@@ -98,6 +101,9 @@ export async function handleTrack(
           errorType: metadata.errorType,
           message: metadata.message,
           statusCode: metadata.statusCode,
+          source: metadata.source,
+          resultCount: metadata.resultCount,
+          itemsSynced: metadata.itemsSynced,
         } : undefined,
       });
 
