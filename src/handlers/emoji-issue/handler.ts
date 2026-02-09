@@ -131,11 +131,16 @@ export async function handleEmojiIssue(
     console.log('No projectId from AI, using default Education team');
   }
 
+  // stateId는 팀별로 다르므로, 팀이 변경되면 해당 팀의 stateId를 사용
+  const stateId = teamId === env.LINEAR_TEAM_ID
+    ? env.LINEAR_DEFAULT_STATE_ID   // Education 팀: 기본 Todo
+    : undefined;                     // 다른 팀: Linear 기본 상태 사용
+
   const issueResult = await linearClient.createIssue({
     title: analysisResult.title,
     description: analysisResult.description,
     teamId,
-    stateId: env.LINEAR_DEFAULT_STATE_ID,
+    stateId,
     assigneeId,
     priority: analysisResult.suggestedPriority || 3,
     projectId: analysisResult.suggestedProjectId,
