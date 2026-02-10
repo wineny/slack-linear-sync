@@ -103,16 +103,39 @@ export class LinearClient {
       }
     }
 
+    // OAuth actor=app mode: add createAsUser and displayIconUrl
+    if (params.createAsUser) {
+      input.createAsUser = params.createAsUser;
+    }
+    if (params.displayIconUrl) {
+      input.displayIconUrl = params.displayIconUrl;
+    }
+
+    // 1차 시도: 모든 필드 포함
+    const result = await this.executeCreateIssue(input);
+    if (result.success) return result;
+
+    // Validation Error → optional 필드 제거 후 재시도
+    const isValidationError = result.error?.includes('Validation') || result.error?.includes('validation');
+    if (!isValidationError) return result;
+
+    const OPTIONAL_FIELDS = ['estimate', 'projectId', 'projectMilestoneId', 'stateId', 'subscriberIds'];
+    const strippedFields: string[] = [];
+    for (const field of OPTIONAL_FIELDS) {
+      if (input[field] !== undefined) {
+        strippedFields.push(`${field}=${JSON.stringify(input[field])}`);
+        delete input[field];
+      }
+    }
+
+    if (strippedFields.length === 0) return result;
+
+    console.warn(`createIssue retry: stripped [${strippedFields.join(', ')}]`);
+    return this.executeCreateIssue(input);
+  }
+
+  private async executeCreateIssue(input: Record<string, unknown>): Promise<LinearIssueResult> {
     try {
-
-      // OAuth actor=app mode: add createAsUser and displayIconUrl
-      if (params.createAsUser) {
-        input.createAsUser = params.createAsUser;
-      }
-      if (params.displayIconUrl) {
-        input.displayIconUrl = params.displayIconUrl;
-      }
-
       const result = await this.query<{
         issueCreate: {
           success: boolean;
