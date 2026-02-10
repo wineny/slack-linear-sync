@@ -81,23 +81,29 @@ export class LinearClient {
     createAsUser?: string;
     displayIconUrl?: string;
   }): Promise<LinearIssueResult> {
-    try {
-      const input: Record<string, unknown> = {
-        title: params.title,
-        description: params.description,
-        teamId: params.teamId,
-        stateId: params.stateId,
-        assigneeId: params.assigneeId,
-        subscriberIds: params.subscriberIds,
-        priority: params.priority,
-        projectId: params.projectId,
-        projectMilestoneId: params.projectMilestoneId,
-      };
+    const input: Record<string, unknown> = {
+      title: params.title,
+      description: params.description,
+      teamId: params.teamId,
+      stateId: params.stateId,
+      assigneeId: params.assigneeId,
+      subscriberIds: params.subscriberIds,
+      priority: params.priority,
+      projectId: params.projectId,
+      projectMilestoneId: params.projectMilestoneId,
+    };
 
-      // estimate는 1 이상일 때만 포함 (Linear API는 0을 거부함)
-      if (params.estimate && params.estimate > 0) {
+    // estimate 검증: Linear 팀 estimation 스케일에 맞는 값만 허용
+    const VALID_ESTIMATES = [0, 1, 2, 4, 8, 16];
+    if (params.estimate && params.estimate > 0) {
+      if (VALID_ESTIMATES.includes(params.estimate)) {
         input.estimate = params.estimate;
+      } else {
+        console.warn(`Invalid estimate value: ${params.estimate}, skipping (allowed: ${VALID_ESTIMATES.join(',')})`);
       }
+    }
+
+    try {
 
       // OAuth actor=app mode: add createAsUser and displayIconUrl
       if (params.createAsUser) {
@@ -144,6 +150,7 @@ export class LinearClient {
 
       return { success: false, error: 'Issue creation failed' };
     } catch (error) {
+      console.error('createIssue failed. Input:', JSON.stringify(input, null, 0));
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',

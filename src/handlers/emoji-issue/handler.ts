@@ -125,7 +125,8 @@ export async function handleEmojiIssue(
     } else if (matchedProject) {
       console.warn(`Project "${matchedProject.name}" has no team, using default`);
     } else {
-      console.warn(`Project ID "${analysisResult.suggestedProjectId}" not found in ${projects.length} projects`);
+      console.warn(`Project ID "${analysisResult.suggestedProjectId}" not found in ${projects.length} projects, clearing invalid ID`);
+      analysisResult.suggestedProjectId = undefined;
     }
   } else {
     console.log('No projectId from AI, using default Education team');

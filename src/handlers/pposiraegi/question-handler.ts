@@ -186,6 +186,12 @@ async function processQuestion(
 
   if (!issueResult.success) {
     console.error('Failed to create Linear issue:', issueResult.error);
+    // Slack에 실패 알림 전송 (디버깅용)
+    await slackClient.postMessage(
+      event.channel,
+      `:warning: 이슈 생성 실패: ${issueResult.error}`,
+      event.ts
+    );
     throw new Error(`Linear issue creation failed: ${issueResult.error}`);
   }
 
