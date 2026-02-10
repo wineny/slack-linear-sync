@@ -343,6 +343,55 @@ export default {
         return new Response(object.body, { headers });
       }
 
+      // Release latest-info API (public) - returns version JSON from latest-mac.yml
+      if (path === '/releases/latest-info' && request.method === 'GET') {
+        const ymlObj = await env.R2_BUCKET.get('releases/latest-mac.yml');
+        if (!ymlObj) {
+          return new Response(JSON.stringify({ error: 'latest-mac.yml not found' }), {
+            status: 404,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        const yml = await ymlObj.text();
+        const version = yml.match(/^version:\s*(.+)$/m)?.[1]?.trim() || '';
+        const releaseDate = yml.match(/^releaseDate:\s*'?(.+?)'?$/m)?.[1]?.trim() || '';
+        const dmgFile = yml.match(/- url:\s*(.+\.dmg)$/m)?.[1]?.trim() || '';
+        const workerBase = new URL(request.url).origin;
+        return new Response(JSON.stringify({
+          version,
+          dmgUrl: dmgFile ? `${workerBase}/releases/${dmgFile}` : '',
+          releaseDate,
+        }), {
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+            'Cache-Control': 'public, max-age=60',
+          },
+        });
+      }
+
+      // Release download redirect (public) - redirects to latest DMG
+      if (path === '/releases/download/latest' && request.method === 'GET') {
+        const ymlObj = await env.R2_BUCKET.get('releases/latest-mac.yml');
+        if (!ymlObj) {
+          return new Response('latest-mac.yml not found', { status: 404, headers: corsHeaders });
+        }
+        const yml = await ymlObj.text();
+        const dmgFile = yml.match(/- url:\s*(.+\.dmg)$/m)?.[1]?.trim();
+        if (!dmgFile) {
+          return new Response('DMG file not found in yml', { status: 404, headers: corsHeaders });
+        }
+        const workerBase = new URL(request.url).origin;
+        return new Response(null, {
+          status: 302,
+          headers: {
+            ...corsHeaders,
+            'Location': `${workerBase}/releases/${dmgFile}`,
+            'Cache-Control': 'no-cache',
+          },
+        });
+      }
+
       // Release file serving (public, no auth) - for electron-updater generic provider
       if (path.startsWith('/releases/') && request.method === 'GET') {
         const r2Key = path.slice(1); // "releases/latest-mac.yml" etc.
