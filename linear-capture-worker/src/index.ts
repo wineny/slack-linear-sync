@@ -328,6 +328,35 @@ export default {
          return await handleEmbeddings(request, env, corsHeaders);
        }
 
+      // Static assets serving (public, no auth) - for landing page demo video etc.
+      if (path.startsWith('/assets/') && request.method === 'GET') {
+        const r2Key = path.slice(1); // "assets/demo.mp4" etc.
+        const object = await env.R2_BUCKET.get(r2Key);
+        if (!object) {
+          return new Response(`Not found: ${r2Key}`, { status: 404, headers: corsHeaders });
+        }
+        const headers = new Headers();
+        headers.set('Content-Type', object.httpMetadata?.contentType || 'application/octet-stream');
+        headers.set('Content-Length', object.size.toString());
+        headers.set('Cache-Control', 'public, max-age=86400');
+        headers.set('Access-Control-Allow-Origin', '*');
+        return new Response(object.body, { headers });
+      }
+
+      // Release file serving (public, no auth) - for electron-updater generic provider
+      if (path.startsWith('/releases/') && request.method === 'GET') {
+        const r2Key = path.slice(1); // "releases/latest-mac.yml" etc.
+        const object = await env.R2_BUCKET.get(r2Key);
+        if (!object) {
+          return new Response(`Not found: ${r2Key}`, { status: 404, headers: corsHeaders });
+        }
+        const headers = new Headers();
+        headers.set('Content-Type', object.httpMetadata?.contentType || 'application/octet-stream');
+        headers.set('Content-Length', object.size.toString());
+        headers.set('Cache-Control', path.endsWith('.yml') ? 'public, max-age=60' : 'public, max-age=3600');
+        return new Response(object.body, { headers });
+      }
+
        if (request.method !== 'POST') {
         return new Response(JSON.stringify({ error: 'Method not allowed' }), {
           status: 405,
