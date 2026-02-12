@@ -97,7 +97,12 @@ export async function handleDone(
   const reactorName = reactorInfo.user?.real_name || reactorInfo.user?.name || 'Unknown';
   const reactorAvatar = reactorInfo.user?.profile?.image_72 || reactorInfo.user?.profile?.image_192;
 
-  const updateResult = await linearClient.updateIssueState(issueId, env.LINEAR_DONE_STATE_ID);
+  const updateResult = await linearClient.updateIssueState({
+    issueId,
+    stateId: env.LINEAR_DONE_STATE_ID,
+    createAsUser: oauthToken ? reactorName : undefined,
+    displayIconUrl: oauthToken ? reactorAvatar : undefined,
+  });
 
   if (!updateResult.success) {
     console.error(`Failed to update issue: ${updateResult.error}`);

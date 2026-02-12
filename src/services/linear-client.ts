@@ -184,8 +184,17 @@ export class LinearClient {
   /**
    * Update issue state (e.g., mark as Done)
    */
-  async updateIssueState(issueId: string, stateId: string): Promise<{ success: boolean; error?: string }> {
+  async updateIssueState(params: {
+    issueId: string;
+    stateId: string;
+    createAsUser?: string;
+    displayIconUrl?: string;
+  }): Promise<{ success: boolean; error?: string }> {
     try {
+      const input: Record<string, unknown> = { stateId: params.stateId };
+      if (params.createAsUser) input.createAsUser = params.createAsUser;
+      if (params.displayIconUrl) input.displayIconUrl = params.displayIconUrl;
+
       const result = await this.query<{
         issueUpdate: {
           success: boolean;
@@ -209,8 +218,8 @@ export class LinearClient {
         }
       `,
         {
-          id: issueId,
-          input: { stateId },
+          id: params.issueId,
+          input,
         }
       );
 
