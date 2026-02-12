@@ -58,12 +58,10 @@ Write all content in bullet (-) format.
 - [ ] (Required action 2)`,
   userInstructionSection: (instruction: string) => `
 ---
-## ⚠️ User Instructions (Must Apply First!)
-You must reflect the following content in the title and description:
-
+## User Instructions
 > ${instruction.trim()}
-
-If user instructions are provided, prioritize them over screenshot content when creating the issue.
+- **Description**: You MUST reflect the above instructions when writing the description.
+- **Title**: Do NOT use the above text as the title. The title must summarize the actual request/task from the screenshot.
 ---`,
   contextSection: {
     header: '## Additional Analysis\nSelect the most appropriate values based on the content.',

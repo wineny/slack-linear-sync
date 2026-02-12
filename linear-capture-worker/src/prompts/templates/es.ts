@@ -58,12 +58,10 @@ Escriba todo el contenido en formato de viñeta (-).
 - [ ] (Acción requerida 2)`,
   userInstructionSection: (instruction: string) => `
 ---
-## ⚠️ Instrucciones del usuario (¡Debe aplicarse primero!)
-Debe reflejar el siguiente contenido en el título y la descripción:
-
+## Instrucciones del usuario
 > ${instruction.trim()}
-
-Si se proporcionan instrucciones del usuario, prioricelas sobre el contenido de la captura de pantalla al crear el problema.
+- **Descripción**: DEBE reflejar las instrucciones anteriores en la descripción.
+- **Título**: NO use el texto anterior como título. El título debe resumir la solicitud/tarea real de la captura de pantalla.
 ---`,
   contextSection: {
     header: '## Análisis adicional\nSeleccione los valores más apropiados según el contenido.',

@@ -58,12 +58,10 @@ export const fr: PromptTemplates = {
 - [ ] (Action requise 2)`,
   userInstructionSection: (instruction: string) => `
 ---
-## ⚠️ Instructions de l'utilisateur (Doit être appliqué en premier!)
-Vous devez refléter le contenu suivant dans le titre et la description:
-
+## Instructions de l'utilisateur
 > ${instruction.trim()}
-
-Si des instructions utilisateur sont fournies, priorisez-les par rapport au contenu de la capture d'écran lors de la création du problème.
+- **Description**: Vous DEVEZ refléter les instructions ci-dessus dans la description.
+- **Titre**: N'utilisez PAS le texte ci-dessus comme titre. Le titre doit résumer la demande/tâche réelle de la capture d'écran.
 ---`,
   contextSection: {
     header: '## Analyse supplémentaire\nSélectionnez les valeurs les plus appropriées en fonction du contenu.',

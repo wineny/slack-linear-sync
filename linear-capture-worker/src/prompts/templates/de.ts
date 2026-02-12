@@ -58,12 +58,10 @@ Schreiben Sie alle Inhalte im Aufzählungsformat (-).
 - [ ] (Erforderliche Aktion 2)`,
   userInstructionSection: (instruction: string) => `
 ---
-## ⚠️ Benutzeranweisungen (Muss zuerst angewendet werden!)
-Sie müssen den folgenden Inhalt in Titel und Beschreibung widerspiegeln:
-
+## Benutzeranweisungen
 > ${instruction.trim()}
-
-Wenn Benutzeranweisungen vorhanden sind, priorisieren Sie diese gegenüber dem Screenshot-Inhalt beim Erstellen des Issues.
+- **Beschreibung**: Sie MÜSSEN die obigen Anweisungen in der Beschreibung berücksichtigen.
+- **Titel**: Verwenden Sie den obigen Text NICHT als Titel. Der Titel muss die tatsächliche Anfrage/Aufgabe aus dem Screenshot zusammenfassen.
 ---`,
   contextSection: {
     header: '## Zusätzliche Analyse\nWählen Sie die am besten geeigneten Werte basierend auf dem Inhalt aus.',

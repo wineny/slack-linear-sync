@@ -58,12 +58,10 @@ export const ko: PromptTemplates = {
 - [ ] (필요한 조치 사항 2)`,
   userInstructionSection: (instruction: string) => `
 ---
-## ⚠️ 사용자 지시사항 (최우선 반영 필수!)
-다음 내용을 반드시 제목과 설명에 반영하세요:
-
+## 사용자 지시사항
 > ${instruction.trim()}
-
-이 지시사항이 있으면 스크린샷 내용보다 우선하여 이슈를 작성하세요.
+- **설명(description)**: 위 지시사항의 관점을 반드시 반영하여 작성하세요.
+- **제목(title)**: 위 텍스트를 그대로 사용하지 마세요. 제목은 스크린샷에서 파악한 실제 요청/작업을 요약하세요.
 ---`,
   contextSection: {
     header: '## 추가 분석\n내용을 종합하여 가장 적합한 값을 선택하세요.',

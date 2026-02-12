@@ -715,7 +715,7 @@ async function analyzeWithGemini(
   };
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-  return parseJsonResponse(text);
+  return parseJsonResponse(text, instruction);
 }
 
 async function analyzeWithHaiku(
@@ -768,14 +768,29 @@ async function analyzeWithHaiku(
   };
   const text = data.content?.[0]?.type === 'text' ? data.content[0].text || '' : '';
 
-  return parseJsonResponse(text);
+  return parseJsonResponse(text, instruction);
 }
 
-function parseJsonResponse(text: string): AnalysisResult {
+function validateTitle(title: string, instruction?: string): string {
+  if (!instruction || !title) return title;
+  const t = title.trim().toLowerCase();
+  const i = instruction.trim().toLowerCase();
+  // Identical or containment → clear title
+  if (t === i || t.startsWith(i) || i.startsWith(t)) return '';
+  // Word similarity > 80% → clear title
+  const tWords = new Set(t.split(/\s+/));
+  const iWords = new Set(i.split(/\s+/));
+  const overlap = [...tWords].filter(w => iWords.has(w)).length;
+  const similarity = (2 * overlap) / (tWords.size + iWords.size);
+  if (similarity > 0.8) return '';
+  return title;
+}
+
+function parseJsonResponse(text: string, instruction?: string): AnalysisResult {
   const json = extractJson(text);
   if (json) {
     return {
-      title: (json.title as string) || '',
+      title: validateTitle((json.title as string) || '', instruction),
       description: (json.description as string) || '',
       success: true,
       suggestedProjectId: (json.projectId as string) || undefined,

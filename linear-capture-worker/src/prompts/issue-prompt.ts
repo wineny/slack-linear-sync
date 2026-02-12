@@ -57,25 +57,10 @@ export function buildImagePrompt(imageCount: number, context?: PromptContext): s
   // Add output language instruction at the very beginning for non-default languages
   const languagePrefix = t.outputLanguageInstruction ? `${t.outputLanguageInstruction}\n\n` : '';
 
-  // instruction이 있으면 프롬프트 최상단에 배치하여 가중치 강화
-  if (instructionSection) {
-    return `${languagePrefix}${instructionSection}
-
-${imageRef} ${t.analyzeInstruction}
-
-${t.titleRules}
-
-${t.descriptionTemplate}
-${contextSection}
-
-## ${t.jsonFormatHeader}
-${jsonFormat}`;
-  }
-
   return `${languagePrefix}${imageRef} ${t.analyzeInstruction}
 
 ${t.titleRules}
-
+${instructionSection}
 ${t.descriptionTemplate}
 ${contextSection}
 
