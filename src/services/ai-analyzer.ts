@@ -337,23 +337,17 @@ ${jsonFormat}`;
 
       const jsonString = extractJSON(content.text);
       if (!jsonString) {
-        console.error('Failed to extract JSON from AI response:', content.text);
-        return { title: '', description: '', success: false, error: 'Failed to parse JSON' };
+        console.warn('Failed to extract JSON from AI response, using fallback. AI response:', content.text.slice(0, 500));
+        return AIAnalyzer.fallbackThreadAnalysis(messages, slackPermalink);
       }
 
       let parsed: { title: string; description: string; projectId?: string | null; priority?: number; estimate?: number };
       try {
         parsed = JSON.parse(jsonString);
       } catch (parseError) {
-        console.error('JSON parse error:', parseError);
-        console.error('Extracted JSON string:', jsonString);
-        console.error('Full AI response:', content.text);
-        return {
-          title: '',
-          description: '',
-          success: false,
-          error: parseError instanceof Error ? parseError.message : 'JSON parse error'
-        };
+        console.warn('JSON parse error, using fallback:', parseError);
+        console.warn('Extracted JSON string:', jsonString.slice(0, 500));
+        return AIAnalyzer.fallbackThreadAnalysis(messages, slackPermalink);
       }
 
       let finalDescription = parsed.description;
@@ -371,12 +365,7 @@ ${jsonFormat}`;
       };
     } catch (error) {
       console.error('AI thread analysis error:', error);
-      return {
-        title: '',
-        description: '',
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      };
+      return AIAnalyzer.fallbackThreadAnalysis(messages, slackPermalink);
     }
   }
 
