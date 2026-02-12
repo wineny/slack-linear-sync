@@ -12,6 +12,7 @@ import { handleHealthUpdate } from './handlers/project-update.js';
 import { handleInitiativeUpdate } from './handlers/initiative-update.js';
 import { getValidAccessToken } from './utils/token-manager.js';
 import { LinearClient } from './services/linear-client.js';
+import { reportDailyIssueItMetrics, debugDailyReport } from './services/issueit-report.js';
 import type { Env, SlackEventPayload } from './types/index.js';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -158,6 +159,17 @@ app.get('/debug/initiative-test', async (c) => {
   }
 });
 
+// Debug: manually trigger IssueIt daily report
+app.get('/debug/daily-report', async (c) => {
+  const env = c.env;
+  try {
+    const result = await debugDailyReport(env);
+    return c.json(result);
+  } catch (error) {
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
 // Debug endpoint (remove in production)
 app.get('/debug/config', async (c) => {
   const env = c.env;
@@ -273,6 +285,11 @@ async function sendSlackAlert(env: Env, message: string): Promise<void> {
 export default {
   fetch: app.fetch,
   scheduled: async (_event: ScheduledEvent, env: Env, ctx: ExecutionContext) => {
-    ctx.waitUntil(checkTokenHealth(env));
+    ctx.waitUntil(
+      Promise.all([
+        checkTokenHealth(env),
+        reportDailyIssueItMetrics(env),
+      ])
+    );
   },
 };

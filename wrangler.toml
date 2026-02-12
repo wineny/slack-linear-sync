@@ -17,6 +17,9 @@ AI_WORKER_URL = "https://linear-capture-ai.ny-4f1.workers.dev"
 PPOSIRAEGI_PROJECT_ID = "9c2623fd-fd86-439e-a6a0-0d00a46dd552"
 PPOSIRAEGI_MILESTONE_ID = "447f5516-83cf-488f-bca5-e56dfddb5e14"
 
+# IssueIt 데일리 리포트 (Slack DM)
+DAILY_REPORT_CHANNEL = "C06MHBY6E9L"
+
 # KV namespace for issue mapping (Slack message -> Linear issue)
 [[kv_namespaces]]
 binding = "ISSUE_MAPPINGS"
@@ -29,7 +32,7 @@ id = "7436de4f48264cf398cea9eeb3b89057"
 
 # Daily token health check - 09:00 KST (00:00 UTC)
 [triggers]
-crons = ["0 0 * * *"]
+crons = ["40 0 * * *"]
 
 # Secrets (set via wrangler secret put):
 # - SLACK_BOT_TOKEN

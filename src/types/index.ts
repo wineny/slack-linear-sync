@@ -20,6 +20,8 @@ export interface Env {
   ANTHROPIC_API_KEY: string;
   LINEAR_CLIENT_ID: string;
   LINEAR_CLIENT_SECRET: string;
+  MIXPANEL_API_SECRET?: string;
+  DAILY_REPORT_CHANNEL?: string;
 
   // KV namespace for deduplication and issue mapping
   PROCESSED_MESSAGES?: KVNamespace;
