@@ -231,8 +231,20 @@ export class LinearClient {
   /**
    * Add a comment to an issue
    */
-  async addComment(issueId: string, body: string): Promise<{ success: boolean; commentId?: string; error?: string }> {
+  async addComment(params: {
+    issueId: string;
+    body: string;
+    createAsUser?: string;
+    displayIconUrl?: string;
+  }): Promise<{ success: boolean; commentId?: string; error?: string }> {
     try {
+      const input: Record<string, unknown> = {
+        issueId: params.issueId,
+        body: params.body,
+      };
+      if (params.createAsUser) input.createAsUser = params.createAsUser;
+      if (params.displayIconUrl) input.displayIconUrl = params.displayIconUrl;
+
       const result = await this.query<{
         commentCreate: {
           success: boolean;
@@ -251,12 +263,7 @@ export class LinearClient {
           }
         }
       `,
-        {
-          input: {
-            issueId,
-            body,
-          },
-        }
+        { input }
       );
 
       if (result.commentCreate.success && result.commentCreate.comment) {
