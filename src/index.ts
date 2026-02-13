@@ -285,11 +285,6 @@ async function sendSlackAlert(env: Env, message: string): Promise<void> {
 export default {
   fetch: app.fetch,
   scheduled: async (_event: ScheduledEvent, env: Env, ctx: ExecutionContext) => {
-    ctx.waitUntil(
-      Promise.all([
-        checkTokenHealth(env),
-        reportDailyIssueItMetrics(env),
-      ])
-    );
+    ctx.waitUntil(checkTokenHealth(env));
   },
 };
