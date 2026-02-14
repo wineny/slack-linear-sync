@@ -31,6 +31,11 @@ binding = "LINEAR_TOKENS"
 id = "7436de4f48264cf398cea9eeb3b89057"
 
 # Daily token health check - 09:00 KST (00:00 UTC)
+# Service binding to linear-capture-ai Worker (avoids Worker-to-Worker fetch restriction)
+[[services]]
+binding = "AI_WORKER"
+service = "linear-capture-ai"
+
 [triggers]
 crons = ["40 0 * * *"]
 

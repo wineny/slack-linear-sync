@@ -9,6 +9,7 @@ export interface Env {
   ISSUE_EMOJI: string;
   CANCEL_EMOJI: string;
   AI_WORKER_URL: string;
+  AI_WORKER: Fetcher;
 
   PPOSIRAEGI_PROJECT_ID?: string;
   PPOSIRAEGI_MILESTONE_ID?: string;
@@ -173,6 +174,7 @@ export interface SlackFile {
   name: string;
   mimetype: string;
   url_private: string;
+  url_private_download?: string;
   size: number;
   thumb_720?: string;
   thumb_1024?: string;

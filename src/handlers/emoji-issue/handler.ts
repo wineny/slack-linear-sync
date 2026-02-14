@@ -47,90 +47,110 @@ export async function handleEmojiIssue(
   const reactedMessage = messageResult.messages[0];
   const threadTs = reactedMessage.thread_ts;
 
-  const messages = await collectThreadMessages(slackClient, channel, messageTs, threadTs);
+  // 텍스트 메시지와 이미지를 동시에 수집
+  const [messages, collectedImages] = await Promise.all([
+    collectThreadMessages(slackClient, channel, messageTs, threadTs),
+    collectThreadImages(slackClient, channel, messageTs, threadTs),
+  ]);
 
-  if (messages.length === 0) {
-    console.log('No messages to analyze');
+  // 텍스트도 이미지도 없으면 종료
+  if (messages.length === 0 && collectedImages.length === 0) {
+    console.log('No messages or images to analyze');
     return;
   }
 
-  console.log(`Collected ${messages.length} messages for analysis`);
+  console.log(`Collected ${messages.length} messages, ${collectedImages.length} images`);
 
-  // ========== 이미지 수집 및 처리 (additive — 이미지 없으면 기존과 동일) ==========
-  const collectedImages = await collectThreadImages(slackClient, channel, messageTs, threadTs);
-  
-  let imageAnalysisResult: ImageAnalysisResult | null = null;
-  let r2Urls: string[] = [];
+  // 캐시에서 프로젝트 조회 + 이미지 다운로드를 병렬 실행
+  const imageProcessor = collectedImages.length > 0
+    ? new ImageProcessor(slackClient, env.AI_WORKER_URL, env.AI_WORKER)
+    : null;
 
-  if (collectedImages.length > 0) {
-    console.log(`Found ${collectedImages.length} images, processing...`);
-    const imageProcessor = new ImageProcessor(slackClient, env.AI_WORKER_URL);
-
-    // 이미지 다운로드 (큰 파일은 Slack 썸네일로 자동 축소)
-    const imageDataList = await imageProcessor.downloadAll(
-      collectedImages.map(ci => ci.file)
-    );
-
-    if (imageDataList.length > 0) {
-      // Vision 분석과 R2 업로드를 병렬 실행
-      const textContext = messages.map(m => `${m.author}: ${m.text}`).join('\n');
-      const [analysisRes, uploadedUrls] = await Promise.all([
-        imageProcessor.analyzeImages(imageDataList, textContext),
-        imageProcessor.uploadImages(imageDataList),
-      ]);
-
-      imageAnalysisResult = analysisRes;
-      r2Urls = uploadedUrls;
-
-      console.log('Image analysis:', JSON.stringify({
-        success: analysisRes.success,
-        title: analysisRes.title?.slice(0, 50),
-        r2Urls: r2Urls.length,
-      }));
-    }
-  }
-
-  // 캐시에서 프로젝트 조회 (linear-rona-bot이 Webhook으로 관리)
-  const [projects, linearUsers] = await Promise.all([
+  const [projects, linearUsers, imageDataList] = await Promise.all([
     getProjectsFromCache(env),
     linearClient.getUsers(),
+    imageProcessor
+      ? imageProcessor.downloadAll(collectedImages.map(ci => ci.file))
+      : Promise.resolve([] as ImageData[]),
   ]);
 
   const permalinkResult = await slackClient.getPermalink(channel, threadTs || messageTs);
   const permalink = permalinkResult.ok ? permalinkResult.permalink : undefined;
 
-  console.log('Analyzing with AI:', JSON.stringify({
-    messagesCount: messages.length,
-    projectsCount: projects.length,
-    usersCount: linearUsers.length,
-    permalink,
-    firstMessage: messages[0],
-  }));
+  // 프로젝트/사용자 컨텍스트 (텍스트 분석 + 이미지 분석 공유)
+  const projectContext = {
+    projects: projects.map(p => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      content: p.content,
+      keywords: p.keywords,
+      teamName: p.teamName,
+      recentIssueTitles: p.recentIssueTitles,
+    })),
+    users: linearUsers.map(u => ({
+      id: u.id,
+      name: u.name,
+    })),
+  };
 
-  const analysisResult = await aiAnalyzer.analyzeSlackThread(
-    messages,
-    {
-      projects: projects.map(p => ({
-        id: p.id,
-        name: p.name,
-        description: p.description,
-        content: p.content,
-        keywords: p.keywords,
-        teamName: p.teamName,
-        recentIssueTitles: p.recentIssueTitles,
-      })),
-      users: linearUsers.map(u => ({
-        id: u.id,
-        name: u.name,
-      })),
-    },
-    permalink
-  );
+  // ========== 이미지 분석 + R2 업로드 (이미지가 있고 다운로드 성공한 경우) ==========
+  let imageAnalysisResult: ImageAnalysisResult | null = null;
+  let r2Urls: string[] = [];
 
-  console.log('AI analysis result:', JSON.stringify(analysisResult));
+  if (imageProcessor && imageDataList.length > 0) {
+    console.log(`Processing ${imageDataList.length} downloaded images...`);
+
+    const [analysisRes, uploadedUrls] = await Promise.all([
+      imageProcessor.analyzeImages(imageDataList, {
+        projects: projectContext.projects.map(p => ({
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          recentIssueTitles: p.recentIssueTitles,
+        })),
+        users: projectContext.users,
+      }),
+      imageProcessor.uploadImages(imageDataList),
+    ]);
+
+    imageAnalysisResult = analysisRes;
+    r2Urls = uploadedUrls;
+
+    console.log('Image analysis:', JSON.stringify({
+      success: analysisRes.success,
+      title: analysisRes.title?.slice(0, 50),
+      r2Urls: r2Urls.length,
+    }));
+  }
+
+  // ========== 텍스트 AI 분석 (텍스트 메시지가 있을 때만) ==========
+  let textAnalysisResult: ThreadAnalysisResult;
+
+  if (messages.length > 0) {
+    console.log('Analyzing text with AI:', JSON.stringify({
+      messagesCount: messages.length,
+      projectsCount: projects.length,
+      usersCount: linearUsers.length,
+      permalink,
+      firstMessage: messages[0],
+    }));
+
+    textAnalysisResult = await aiAnalyzer.analyzeSlackThread(
+      messages,
+      projectContext,
+      permalink
+    );
+  } else {
+    // 텍스트 없음 — 이미지만으로 진행
+    console.log('No text messages, relying on image analysis only');
+    textAnalysisResult = { title: '', description: '', success: false, error: 'No text messages' };
+  }
+
+  console.log('Text analysis result:', JSON.stringify(textAnalysisResult));
 
   // ========== 텍스트 + 이미지 분석 결과 병합 ==========
-  const finalResult = mergeAnalysisResults(analysisResult, imageAnalysisResult, r2Urls);
+  const finalResult = mergeAnalysisResults(textAnalysisResult, imageAnalysisResult, r2Urls);
 
   if (!finalResult.success) {
     console.error('Analysis failed:', finalResult.error);
@@ -219,9 +239,10 @@ export async function handleEmojiIssue(
   // matchedProject는 위에서 이미 할당됨
   const projectLine = matchedProject ? `\n프로젝트: ${matchedProject.name}` : '';
   const estimateLine = finalResult.suggestedEstimate ? ` · ${finalResult.suggestedEstimate}pt` : '';
+  const imageLine = collectedImages.length > 0 ? ` · 이미지 ${collectedImages.length}장` : '';
 
   const replyText = `Linear 이슈가 생성되었습니다! 프로젝트/Cycle을 정확히 수정해주세요
-<${issueResult.issueUrl}|${issueResult.issueIdentifier}> ${finalResult.title}${estimateLine}${projectLine}`;
+<${issueResult.issueUrl}|${issueResult.issueIdentifier}> ${finalResult.title}${estimateLine}${imageLine}${projectLine}`;
 
   await slackClient.postMessage(channel, replyText, threadTs || messageTs);
 }
