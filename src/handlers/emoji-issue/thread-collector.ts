@@ -104,3 +104,66 @@ export async function collectThreadMessages(
   // 스레드가 길면 타겟 메시지 중심으로 앞뒤 컨텍스트만 유지
   return trimMessages(messages);
 }
+
+// ========== Image Collection ==========
+
+import type { SlackFile } from '../../types/index.js';
+
+const IMAGE_MIMETYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const MAX_IMAGES = 10;
+
+export interface CollectedImage {
+  file: SlackFile;
+  isFromTarget: boolean;  // 이모지가 달린 메시지의 이미지인지
+}
+
+/**
+ * 스레드 메시지에서 이미지 파일만 수집
+ * 타겟 메시지(이모지가 달린 메시지)의 이미지를 우선 배치
+ */
+export async function collectThreadImages(
+  slackClient: SlackClient,
+  channel: string,
+  messageTs: string,
+  threadTs?: string
+): Promise<CollectedImage[]> {
+  const targetThreadTs = threadTs || messageTs;
+
+  const threadResult = await slackClient.getThreadMessages(channel, targetThreadTs);
+
+  if (!threadResult.ok || !threadResult.messages) {
+    return [];
+  }
+
+  const targetImages: CollectedImage[] = [];
+  const otherImages: CollectedImage[] = [];
+
+  for (const msg of threadResult.messages) {
+    if (!msg.files) continue;
+
+    const isTarget = msg.ts === messageTs;
+
+    for (const file of msg.files) {
+      if (!IMAGE_MIMETYPES.includes(file.mimetype)) continue;
+
+      const image: CollectedImage = { file, isFromTarget: isTarget };
+
+      if (isTarget) {
+        targetImages.push(image);
+      } else {
+        otherImages.push(image);
+      }
+    }
+  }
+
+  // 타겟 메시지 이미지 우선, 나머지는 시간순
+  const allImages = [...targetImages, ...otherImages];
+
+  if (allImages.length > MAX_IMAGES) {
+    console.log(`Found ${allImages.length} images, limiting to ${MAX_IMAGES}`);
+    return allImages.slice(0, MAX_IMAGES);
+  }
+
+  console.log(`Collected ${allImages.length} images (target: ${targetImages.length}, other: ${otherImages.length})`);
+  return allImages;
+}

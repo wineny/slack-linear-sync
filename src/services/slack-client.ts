@@ -2,7 +2,7 @@
  * Slack API client for user info and messaging
  */
 
-import type { SlackUserInfo, SlackChannelInfo } from '../types/index.js';
+import type { SlackUserInfo, SlackChannelInfo, SlackFile } from '../types/index.js';
 
 export class SlackClient {
   private token: string;
@@ -99,6 +99,7 @@ export class SlackClient {
       thread_ts?: string;
       text: string;
       user: string;
+      files?: SlackFile[];
     }>;
     error?: string;
   }> {
@@ -119,6 +120,7 @@ export class SlackClient {
       thread_ts?: string;
       text: string;
       user: string;
+      files?: SlackFile[];
     }>;
     error?: string;
   }> {
@@ -139,6 +141,7 @@ export class SlackClient {
       thread_ts?: string;
       text: string;
       user: string;
+      files?: SlackFile[];
     }>;
     error?: string;
   }> {
@@ -148,5 +151,22 @@ export class SlackClient {
       limit: '1',
       inclusive: 'true',
     });
+  }
+
+  /**
+   * Download a file from Slack using bot token auth
+   */
+  async downloadFile(urlPrivate: string): Promise<ArrayBuffer> {
+    const response = await fetch(urlPrivate, {
+      headers: {
+        'Authorization': `Bearer ${this.token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
+    }
+
+    return response.arrayBuffer();
   }
 }

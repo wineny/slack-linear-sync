@@ -165,3 +165,30 @@ export interface LinearProjectUpdate {
     name: string;
   };
 }
+
+// ========== Image Processing Types ==========
+
+export interface SlackFile {
+  id: string;
+  name: string;
+  mimetype: string;
+  url_private: string;
+  size: number;
+  thumb_720?: string;
+  thumb_1024?: string;
+}
+
+export interface ImageData {
+  data: string;        // base64 encoded
+  mimeType: string;
+  fileName: string;
+  size: number;
+}
+
+export interface ImageAnalysisResult {
+  title: string;
+  description: string;
+  success: boolean;
+  suggestedProjectId?: string;
+  error?: string;
+}
