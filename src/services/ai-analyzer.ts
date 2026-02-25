@@ -1,9 +1,11 @@
 /**
- * AI analyzer using Anthropic Claude Haiku 4.5 for extracting issue title/description
+ * AI analyzer using Google Gemini 3 Flash for extracting issue title/description
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import type { AnalysisResult, LinearProject, LinearUser } from '../types/index.js';
+
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const GEMINI_MODEL = 'gemini-3-flash-preview';
 
 /**
  * Extract JSON from text using balanced braces tracking
@@ -132,11 +134,48 @@ export interface ThreadAnalysisResult {
 }
 
 export class AIAnalyzer {
-  private client: Anthropic;
-  private model = 'claude-haiku-4-5-20251001';
+  private apiKey: string;
 
   constructor(apiKey: string) {
-    this.client = new Anthropic({ apiKey });
+    this.apiKey = apiKey;
+  }
+
+  /**
+   * Call Gemini API with a prompt and return the text response
+   */
+  private async callGemini(prompt: string, maxTokens: number = 4096): Promise<string> {
+    const url = `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'x-goog-api-key': this.apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json() as {
+      candidates?: Array<{
+        content?: { parts?: Array<{ text?: string }> };
+      }>;
+    };
+
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) {
+      throw new Error('Empty response from Gemini API');
+    }
+
+    return text;
   }
 
   /**
@@ -184,21 +223,12 @@ Slack \`00-ai개발-질문\` 채널에서 접수된 질문입니다.
 JSON만 출력하세요. 다른 텍스트는 포함하지 마세요.`;
 
     try {
-      const response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: 1024,
-        messages: [{ role: 'user', content: prompt }],
-      });
-
-      const content = response.content[0];
-      if (content.type !== 'text') {
-        return { title: '', description: '', success: false, error: 'Unexpected response type' };
-      }
+      const responseText = await this.callGemini(prompt);
 
       // Parse JSON from response using balanced braces
-      const jsonString = extractJSON(content.text);
+      const jsonString = extractJSON(responseText);
       if (!jsonString) {
-        console.error('Failed to extract JSON from AI response:', content.text);
+        console.error('Failed to extract JSON from AI response:', responseText);
         return { title: '', description: '', success: false, error: 'Failed to parse JSON' };
       }
 
@@ -208,7 +238,7 @@ JSON만 출력하세요. 다른 텍스트는 포함하지 마세요.`;
       } catch (parseError) {
         console.error('JSON parse error:', parseError);
         console.error('Extracted JSON string:', jsonString);
-        console.error('Full AI response:', content.text);
+        console.error('Full AI response:', responseText);
         return {
           title: '',
           description: '',
@@ -324,20 +354,11 @@ ${contextSection}
 ${jsonFormat}`;
 
     try {
-      const response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: 1024,
-        messages: [{ role: 'user', content: prompt }],
-      });
+      const responseText = await this.callGemini(prompt);
 
-      const content = response.content[0];
-      if (content.type !== 'text') {
-        return { title: '', description: '', success: false, error: 'Unexpected response type' };
-      }
-
-      const jsonString = extractJSON(content.text);
+      const jsonString = extractJSON(responseText);
       if (!jsonString) {
-        console.warn('Failed to extract JSON from AI response, using fallback. AI response:', content.text.slice(0, 500));
+        console.warn('Failed to extract JSON from AI response, using fallback. AI response:', responseText.slice(0, 500));
         return AIAnalyzer.fallbackThreadAnalysis(messages, slackPermalink);
       }
 
@@ -515,18 +536,9 @@ ${todoSection || '(없음)'}
 위 예시처럼 입력된 모든 프로젝트를 빠짐없이 포함하여 JSON만 출력하세요.`;
 
     try {
-      const response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: 2048,
-        messages: [{ role: 'user', content: prompt }],
-      });
+      const responseText = await this.callGemini(prompt, 2048);
 
-      const content = response.content[0];
-      if (content.type !== 'text') {
-        return { done: doneByProject, todo: todoByProject };
-      }
-
-      const jsonString = extractJSON(content.text);
+      const jsonString = extractJSON(responseText);
       if (!jsonString) {
         console.error('Failed to extract JSON from summary response');
         return { done: doneByProject, todo: todoByProject };
@@ -611,21 +623,11 @@ ${updatesText}
 - JSON만 출력하세요.`;
 
     try {
-      const response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: 2048,
-        messages: [{ role: 'user', content: prompt }],
-      });
+      const responseText = await this.callGemini(prompt, 2048);
 
-      const content = response.content[0];
-      if (content.type !== 'text') {
-        console.error('Unexpected response type from AI');
-        return { done: [], todo: [] };
-      }
-
-      const jsonString = extractJSON(content.text);
+      const jsonString = extractJSON(responseText);
       if (!jsonString) {
-        console.error('Failed to extract JSON from AI response:', content.text);
+        console.error('Failed to extract JSON from AI response:', responseText);
         return { done: [], todo: [] };
       }
 

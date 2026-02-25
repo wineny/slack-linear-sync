@@ -14,7 +14,12 @@
       "Bash(npx wrangler tail:*)",
       "WebSearch",
       "Bash(echo:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "mcp__context7__resolve-library-id",
+      "WebFetch(domain:ai.google.dev)",
+      "Bash(npm install 2>&1 | tail -5)",
+      "Bash(npm run deploy 2>&1)",
+      "Bash(git add -A && git reset AI_CASE_STUDY.md)"
     ]
   },
   "enableAllProjectMcpServers": true,

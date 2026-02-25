@@ -9,8 +9,7 @@
     "tail": "wrangler tail"
   },
   "dependencies": {
-    "hono": "^4.6.0",
-    "@anthropic-ai/sdk": "^0.52.0"
+    "hono": "^4.6.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241218.0",

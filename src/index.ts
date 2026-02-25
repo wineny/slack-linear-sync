@@ -179,7 +179,7 @@ app.get('/debug/config', async (c) => {
     teamId: env.LINEAR_TEAM_ID,
     hasSlackToken: !!env.SLACK_BOT_TOKEN,
     hasLinearToken: !!env.LINEAR_API_TOKEN,
-    hasAnthropicKey: !!env.ANTHROPIC_API_KEY,
+    hasGeminiKey: !!env.GEMINI_API_KEY,
     hasKV: !!env.PROCESSED_MESSAGES,
     hasOAuthToken: !!oauthToken,
     oauthTokenLength: oauthToken?.length || 0,

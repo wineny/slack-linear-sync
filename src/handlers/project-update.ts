@@ -4,7 +4,7 @@ import { mapSlackUserToLinear } from '../utils/user-mapper.js';
 import { SlackClient } from '../services/slack-client.js';
 
 /**
- * Get AI summary of issues using Anthropic API
+ * Get AI summary of issues using Gemini API
  */
 async function getAISummary(
   issues: Array<{ title: string }>,
@@ -15,27 +15,29 @@ async function getAISummary(
   const titles = issues.map((i) => i.title).join(', ');
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-3-haiku-20240307',
-        max_tokens: 100,
-        messages: [
-          {
-            role: 'user',
-            content: `아래 작업 목록을 하나의 핵심 문장으로 요약해. 50자 이내, 번호나 나열 없이 핵심만. 예시: "인증 시스템 구축 및 테스트"\n\n${titles}`,
-          },
-        ],
-      }),
-    });
+    const response = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent',
+      {
+        method: 'POST',
+        headers: {
+          'x-goog-api-key': apiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: `아래 작업 목록을 하나의 핵심 문장으로 요약해. 50자 이내, 번호나 나열 없이 핵심만. 예시: "인증 시스템 구축 및 테스트"\n\n${titles}`,
+            }],
+          }],
+          generationConfig: { maxOutputTokens: 100 },
+        }),
+      }
+    );
 
-    const data = await response.json() as { content?: Array<{ text: string }> };
-    return data.content?.[0]?.text?.trim() || '작업 진행 중';
+    const data = await response.json() as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '작업 진행 중';
   } catch (error) {
     console.error('AI summary error:', error);
     return '작업 진행 중';
@@ -105,8 +107,8 @@ export async function handleHealthUpdate(
 
        // AI 요약 병렬 실행
        const [madeSummary, toMakeSummary] = await Promise.all([
-         getAISummary(madeIssues, env.ANTHROPIC_API_KEY),
-         getAISummary(toMakeIssues, env.ANTHROPIC_API_KEY),
+         getAISummary(madeIssues, env.GEMINI_API_KEY),
+         getAISummary(toMakeIssues, env.GEMINI_API_KEY),
        ]);
 
        const projectUpdateUrl = `${project.url}/updates`;

@@ -123,7 +123,7 @@ export async function handleInitiativeUpdate(
     }
 
     // AI가 원본 업데이트에서 완료/예정 항목 추출 + 요약
-    const aiAnalyzer = new AIAnalyzer(env.ANTHROPIC_API_KEY);
+    const aiAnalyzer = new AIAnalyzer(env.GEMINI_API_KEY);
     const summarized = await aiAnalyzer.parseAndSummarizeUpdates(thisWeekUpdates);
 
     const output = formatOutput(summarized.done, summarized.todo);

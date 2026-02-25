@@ -18,7 +18,7 @@ export interface Env {
   SLACK_BOT_TOKEN: string;
   SLACK_SIGNING_SECRET: string;
   LINEAR_API_TOKEN: string;
-  ANTHROPIC_API_KEY: string;
+  GEMINI_API_KEY: string;
   LINEAR_CLIENT_ID: string;
   LINEAR_CLIENT_SECRET: string;
   MIXPANEL_API_SECRET?: string;

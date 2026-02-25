@@ -36,7 +36,7 @@ export async function handleEmojiIssue(
   }
   
   const linearClient = new LinearClient(oauthToken || env.LINEAR_API_TOKEN);
-  const aiAnalyzer = new AIAnalyzer(env.ANTHROPIC_API_KEY);
+  const aiAnalyzer = new AIAnalyzer(env.GEMINI_API_KEY);
 
   const messageResult = await slackClient.getConversationReplies(channel, messageTs);
   if (!messageResult.ok || !messageResult.messages?.[0]) {
@@ -63,7 +63,7 @@ export async function handleEmojiIssue(
 
   // 캐시에서 프로젝트 조회 + 이미지 다운로드를 병렬 실행
   const imageProcessor = collectedImages.length > 0
-    ? new ImageProcessor(slackClient, env.AI_WORKER_URL, env.AI_WORKER)
+    ? new ImageProcessor(slackClient, env.AI_WORKER_URL, env.AI_WORKER, env.GEMINI_API_KEY)
     : null;
 
   const [projects, linearUsers, imageDataList] = await Promise.all([

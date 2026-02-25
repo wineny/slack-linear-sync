@@ -111,7 +111,7 @@ async function processQuestion(
 
   // Initialize clients - prefer OAuth token for createAsUser support
   const linearClient = new LinearClient(oauthToken || env.LINEAR_API_TOKEN);
-  const aiAnalyzer = new AIAnalyzer(env.ANTHROPIC_API_KEY);
+  const aiAnalyzer = new AIAnalyzer(env.GEMINI_API_KEY);
 
   // Get Slack permalink for the message
   const permalinkResult = await slackClient.getPermalink(event.channel, event.ts);

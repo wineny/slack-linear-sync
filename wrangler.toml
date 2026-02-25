@@ -12,6 +12,7 @@ DONE_EMOJI = "해결"
 ISSUE_EMOJI = "issue"
 CANCEL_EMOJI = "x"
 AI_WORKER_URL = "https://linear-capture-ai.ny-4f1.workers.dev"
+OPENCLAW_WEBHOOK_URL = "http://100.107.90.29:18789"
 
 # 뽀시래기 프로젝트/마일스톤 자동 설정
 PPOSIRAEGI_PROJECT_ID = "9c2623fd-fd86-439e-a6a0-0d00a46dd552"
@@ -43,4 +44,5 @@ crons = ["40 0 * * *"]
 # - SLACK_BOT_TOKEN
 # - SLACK_SIGNING_SECRET
 # - LINEAR_API_TOKEN (deprecated, use LINEAR_TOKENS KV instead)
-# - ANTHROPIC_API_KEY
+# - GEMINI_API_KEY
+

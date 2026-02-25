@@ -2,16 +2,20 @@ import type { SlackFile, ImageData, ImageAnalysisResult } from '../types/index.j
 import { SlackClient } from './slack-client.js';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const GEMINI_MODEL = 'gemini-3-flash-preview';
 
 export class ImageProcessor {
   private slackClient: SlackClient;
   private workerUrl: string;
   private aiWorker?: Fetcher;
+  private geminiApiKey?: string;
 
-  constructor(slackClient: SlackClient, workerUrl: string, aiWorker?: Fetcher) {
+  constructor(slackClient: SlackClient, workerUrl: string, aiWorker?: Fetcher, geminiApiKey?: string) {
     this.slackClient = slackClient;
     this.workerUrl = workerUrl;
     this.aiWorker = aiWorker;
+    this.geminiApiKey = geminiApiKey;
   }
 
   /**
@@ -111,6 +115,12 @@ export class ImageProcessor {
       users?: Array<{ id: string; name: string }>;
     }
   ): Promise<ImageAnalysisResult> {
+    // Gemini Vision 직접 호출
+    if (this.geminiApiKey) {
+      return this.analyzeWithGemini(imageDataList, context);
+    }
+
+    // Fallback: AI Worker (legacy)
     try {
       const requestBody = {
         images: imageDataList.map(img => ({
@@ -122,7 +132,7 @@ export class ImageProcessor {
         language: 'ko',
       };
 
-      console.log(`Vision API: ${imageDataList.length} images, body ~${Math.round(JSON.stringify(requestBody).length / 1024)}KB`);
+      console.log(`Vision API (Worker): ${imageDataList.length} images, body ~${Math.round(JSON.stringify(requestBody).length / 1024)}KB`);
 
       const response = await this.workerFetch('/', {
         method: 'POST',
@@ -146,6 +156,119 @@ export class ImageProcessor {
       return result;
     } catch (error) {
       console.error('Vision failed:', error);
+      return {
+        title: '',
+        description: '',
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private async analyzeWithGemini(
+    imageDataList: ImageData[],
+    context?: {
+      projects?: Array<{ id: string; name: string; description?: string; recentIssueTitles?: string[] }>;
+      users?: Array<{ id: string; name: string }>;
+    }
+  ): Promise<ImageAnalysisResult> {
+    try {
+      const projectList = context?.projects
+        ?.map(p => `- "${p.name}" (${p.id})`)
+        .join('\n') || '(없음)';
+
+      const prompt = `이 이미지를 분석하여 Linear 이슈 정보를 생성하세요.
+
+## 규칙
+- 제목: 40자 이내, 이미지 내용의 핵심 요약
+- 설명: 마크다운, 이미지에서 파악한 내용 정리
+
+## 사용 가능한 프로젝트
+${projectList}
+
+## JSON 응답 형식 (마크다운 코드블록 없이):
+{"title": "제목", "description": "설명", "projectId": "매칭되는 프로젝트 ID 또는 null"}`;
+
+      // Build multimodal parts: text + images
+      const parts: Array<{ text: string } | { inline_data: { mime_type: string; data: string } }> = [
+        { text: prompt },
+      ];
+      for (const img of imageDataList) {
+        parts.push({
+          inline_data: {
+            mime_type: img.mimeType,
+            data: img.data,
+          },
+        });
+      }
+
+      console.log(`Gemini Vision: ${imageDataList.length} images`);
+
+      const url = `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'x-goog-api-key': this.geminiApiKey!,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: { maxOutputTokens: 4096 },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Gemini Vision error: ${response.status} - ${errorText.slice(0, 500)}`);
+        return { title: '', description: '', success: false, error: `Gemini Vision: ${response.status}` };
+      }
+
+      const data = await response.json() as {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      };
+
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) {
+        return { title: '', description: '', success: false, error: 'Empty Gemini Vision response' };
+      }
+
+      // Extract JSON from response
+      const start = text.indexOf('{');
+      if (start === -1) {
+        console.error('No JSON in Gemini Vision response:', text.slice(0, 300));
+        return { title: '', description: '', success: false, error: 'No JSON in response' };
+      }
+
+      let depth = 0;
+      let inStr = false;
+      let esc = false;
+      let end = -1;
+      for (let i = start; i < text.length; i++) {
+        const c = text[i];
+        if (esc) { esc = false; continue; }
+        if (c === '\\' && inStr) { esc = true; continue; }
+        if (c === '"' && !esc) { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (c === '{') depth++;
+        if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
+      }
+
+      if (end === -1) {
+        console.error('Incomplete JSON in Gemini Vision response:', text.slice(0, 500));
+        return { title: '', description: '', success: false, error: 'Incomplete JSON' };
+      }
+
+      const parsed = JSON.parse(text.slice(start, end + 1));
+      console.log(`Gemini Vision result: title="${parsed.title}"`);
+
+      return {
+        title: parsed.title || '',
+        description: parsed.description || '',
+        success: true,
+        suggestedProjectId: parsed.projectId || undefined,
+      };
+    } catch (error) {
+      console.error('Gemini Vision failed:', error);
       return {
         title: '',
         description: '',

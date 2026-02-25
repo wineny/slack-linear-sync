@@ -2,12 +2,19 @@ import type { Env, SlackReactionEvent } from '../types/index.js';
 import { handleDone } from './pposiraegi/index.js';
 import { handleEmojiIssue } from './emoji-issue/index.js';
 import { handleCancel } from './cancel-handler.js';
+import { handleRozziDone } from './rozzi-done.js';
 
 export async function handleSlackReaction(
   event: SlackReactionEvent,
   env: Env
 ): Promise<Response> {
   if (event.type !== 'reaction_added') {
+    return new Response('OK');
+  }
+
+  // 🥑 로찌 - AI 기반 이슈 검색 & Done
+  if (event.reaction === 'avocado') {
+    await handleRozziDone(event, env);
     return new Response('OK');
   }
 
