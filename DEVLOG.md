@@ -546,3 +546,30 @@ curl로 직접 호출하면 정상 — Worker-to-Worker 호출 문제
 - `wrangler.toml`에 Service Binding 추가: `[[services]] binding = "AI_WORKER" service = "linear-capture-ai"`
 - `ImageProcessor`에서 `workerFetch()` 메서드로 Service Binding 우선 사용
 - Vision 분석 + R2 업로드 모두 성공 확인
+
+---
+
+## 2026-02-27
+
+### 22. /initiative-update Slack 커맨드 AI 요약 실패 해결
+
+```
+/initiative-update 실행 시 "업데이트 요약을 생성하지 못했습니다" fallback만 표시
+디버그 엔드포인트는 정상 작동, /project-update도 정상
+```
+
+**근본 원인:** Gemini 2.5 Flash의 "thinking" 기능이 기본 활성화되어 `maxOutputTokens: 2048` 중 ~1966토큰을 thinking에 소모 → 실제 출력은 82토큰에서 `MAX_TOKENS`로 잘림
+
+**디버깅 과정:**
+1. 로컬 테스트 스크립트로 Linear 데이터 수집 정상 확인
+2. `gemini-3-flash-preview`: output 81토큰에서 MAX_TOKENS (preview 모델 버그)
+3. `gemini-2.0-flash`로 변경 → 정상 (3.3s, STOP)
+4. `gemini-2.5-flash`로 업그레이드 → 다시 MAX_TOKENS (output 82토큰)
+5. Gemini API 응답의 `finishReason`, `usageMetadata` 확인 → thinking 토큰이 output 예산 소모
+6. `thinkingConfig: { thinkingBudget: 0 }` 추가 → 2초 만에 정상 응답
+
+**수정 내용:**
+- `ai-analyzer.ts`: 모델 `gemini-2.5-flash` + thinking 비활성화, AbortController 타임아웃(20s), 재시도 1회 + `aiError` 필드
+- `initiative-update.ts`: AI 실패 시 프로젝트 이름 목록 fallback, 단계별 타이밍 로그
+
+**교훈:** Gemini 2.5 Flash는 thinking이 기본 ON이라 output 토큰 예산을 잠식함. JSON 추출 같은 단순 작업에는 반드시 `thinkingBudget: 0` 설정 필요
