@@ -12,6 +12,7 @@ import { handleHealthUpdate } from './handlers/project-update.js';
 import { handleInitiativeUpdate } from './handlers/initiative-update.js';
 import { getValidAccessToken } from './utils/token-manager.js';
 import { LinearClient } from './services/linear-client.js';
+import { AIAnalyzer } from './services/ai-analyzer.js';
 import { reportDailyIssueItMetrics, debugDailyReport } from './services/issueit-report.js';
 import type { Env, SlackEventPayload } from './types/index.js';
 
@@ -156,6 +157,73 @@ app.get('/debug/initiative-test', async (c) => {
   } catch (error) {
     console.error('[DEBUG] Error:', error);
     return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Debug: full initiative-update flow test (with AI)
+app.get('/debug/initiative-flow', async (c) => {
+  const env = c.env;
+  const linearClient = new LinearClient(env.LINEAR_API_TOKEN);
+  const aiAnalyzer = new AIAnalyzer(env.GEMINI_API_KEY);
+  const testUserId = '43fe6bb7-5407-474d-b94b-d9a1bfdebe08';
+
+  const steps: Record<string, unknown> = {};
+
+  try {
+    // Step 1: Get initiatives
+    const allInitiatives = await linearClient.getMyLeadInitiatives(testUserId);
+    steps.initiatives = allInitiatives.length;
+
+    const initiatives = allInitiatives.slice(0, 5);
+
+    // Step 2: Get updates (parallel)
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - (weekStart.getDay() === 0 ? 6 : weekStart.getDay() - 1));
+    weekStart.setHours(0, 0, 0, 0);
+
+    const results = await Promise.all(
+      initiatives.map(init => linearClient.getInitiativeWithUpdates(init.id))
+    );
+    steps.initiativesProcessed = results.filter(Boolean).length;
+
+    // Step 3: Collect this week updates
+    const thisWeekUpdates: Array<{ projectName: string; body: string; createdAt: string }> = [];
+    for (const data of results) {
+      if (!data) continue;
+      for (const project of data.projects) {
+        const weekUpdates = project.updates.filter(u => new Date(u.createdAt) >= weekStart);
+        if (weekUpdates.length > 0) {
+          const body = weekUpdates[0].body;
+          thisWeekUpdates.push({
+            projectName: project.name,
+            body: body.length > 1500 ? body.slice(0, 1500) + '...' : body,
+            createdAt: weekUpdates[0].createdAt,
+          });
+        }
+      }
+    }
+    steps.updatesCollected = thisWeekUpdates.length;
+    steps.updateProjects = thisWeekUpdates.map(u => u.projectName);
+    steps.totalPromptChars = thisWeekUpdates.reduce((sum, u) => sum + u.body.length, 0);
+
+    if (thisWeekUpdates.length === 0) {
+      return c.json({ ...steps, result: 'no updates this week' });
+    }
+
+    // Step 4: AI call
+    const toProcess = thisWeekUpdates.slice(0, 30);
+    steps.updatesToAI = toProcess.length;
+
+    const summarized = await aiAnalyzer.parseAndSummarizeUpdates(toProcess);
+    steps.aiDone = summarized.done.length;
+    steps.aiTodo = summarized.todo.length;
+    steps.aiResult = summarized;
+
+    return c.json(steps);
+  } catch (error) {
+    steps.error = String(error);
+    steps.errorStack = error instanceof Error ? error.stack : undefined;
+    return c.json(steps, 500);
   }
 });
 

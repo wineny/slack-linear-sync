@@ -1,11 +1,13 @@
 /**
- * AI analyzer using Google Gemini 3 Flash for extracting issue title/description
+ * AI analyzer using Google Gemini for extracting issue title/description
  */
 
 import type { AnalysisResult, LinearProject, LinearUser } from '../types/index.js';
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-const GEMINI_MODEL = 'gemini-3-flash-preview';
+// gemini-3-flash-preview has a bug: MAX_TOKENS at ~81 output tokens despite maxOutputTokens=2048
+// gemini-2.0-flash deprecated June 2026
+const GEMINI_MODEL = 'gemini-2.5-flash';
 
 /**
  * Extract JSON from text using balanced braces tracking
@@ -143,21 +145,36 @@ export class AIAnalyzer {
   /**
    * Call Gemini API with a prompt and return the text response
    */
-  private async callGemini(prompt: string, maxTokens: number = 4096): Promise<string> {
+  private async callGemini(prompt: string, maxTokens: number = 4096, timeoutMs: number = 20000): Promise<string> {
     const url = `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'x-goog-api-key': this.apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          maxOutputTokens: maxTokens,
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'x-goog-api-key': this.apiKey,
+          'Content-Type': 'application/json',
         },
-      }),
-    });
+        signal: controller.signal,
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            maxOutputTokens: maxTokens,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+      });
+    } catch (err: unknown) {
+      clearTimeout(timeoutId);
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new Error(`Gemini API timeout after ${timeoutMs}ms`);
+      }
+      throw err;
+    }
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -568,6 +585,7 @@ ${todoSection || '(없음)'}
   ): Promise<{
     done: Array<{ name: string; items: string[] }>;
     todo: Array<{ name: string; items: string[] }>;
+    aiError?: string;
   }> {
     if (updates.length === 0) {
       return { done: [], todo: [] };
@@ -622,24 +640,40 @@ ${updatesText}
 - 프로젝트에 완료 항목만 있으면 done에만, 예정 항목만 있으면 todo에만 포함
 - JSON만 출력하세요.`;
 
-    try {
-      const responseText = await this.callGemini(prompt, 2048);
+    const MAX_RETRIES = 1;
+    let lastError: string | undefined;
 
-      const jsonString = extractJSON(responseText);
-      if (!jsonString) {
-        console.error('Failed to extract JSON from AI response:', responseText);
-        return { done: [], todo: [] };
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const startMs = Date.now();
+        const responseText = await this.callGemini(prompt, 2048, 15000);
+        console.log(`[parseAndSummarize] callGemini took ${Date.now() - startMs}ms (attempt ${attempt + 1})`);
+
+        const jsonString = extractJSON(responseText);
+        if (!jsonString) {
+          console.error('[parseAndSummarize] Failed to extract JSON:', responseText.slice(0, 500));
+          lastError = 'Failed to extract JSON from AI response';
+          continue;
+        }
+
+        const parsed = JSON.parse(jsonString);
+        return {
+          done: parsed.done || [],
+          todo: parsed.todo || [],
+        };
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        console.error(`[parseAndSummarize] AI error (attempt ${attempt + 1}):`, errMsg);
+        lastError = errMsg;
+
+        const isRetryable = errMsg.includes('timeout') || errMsg.includes('500') || errMsg.includes('503');
+        if (!isRetryable || attempt >= MAX_RETRIES) break;
+
+        console.log('[parseAndSummarize] Retrying...');
       }
-
-      const parsed = JSON.parse(jsonString);
-      return {
-        done: parsed.done || [],
-        todo: parsed.todo || [],
-      };
-    } catch (error) {
-      console.error('AI parseAndSummarize error:', error);
-      return { done: [], todo: [] };
     }
+
+    return { done: [], todo: [], aiError: lastError || 'Unknown AI error' };
   }
 
   static fallbackThreadAnalysis(
