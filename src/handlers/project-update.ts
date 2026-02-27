@@ -29,7 +29,7 @@ async function getAISummary(
               text: `아래 작업 목록을 하나의 핵심 문장으로 요약해. 50자 이내, 번호나 나열 없이 핵심만. 예시: "인증 시스템 구축 및 테스트"\n\n${titles}`,
             }],
           }],
-          generationConfig: { maxOutputTokens: 100 },
+          generationConfig: { maxOutputTokens: 2000 },
         }),
       }
     );
