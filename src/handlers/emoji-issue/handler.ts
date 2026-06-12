@@ -19,7 +19,32 @@ export async function handleEmojiIssue(
   console.log(`Emoji issue triggered by ${reactorUserId} on ${channel}:${messageTs}`);
 
   const slackClient = new SlackClient(env.SLACK_BOT_TOKEN);
-  
+
+  try {
+    await _handleEmojiIssue(event, env, slackClient, channel, messageTs, reactorUserId);
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error('Unhandled error in handleEmojiIssue:', errMsg, error instanceof Error ? error.stack : '');
+    try {
+      await slackClient.postMessage(
+        channel,
+        `:x: 이슈 생성 중 오류 발생: ${errMsg}`,
+        messageTs
+      );
+    } catch (notifyErr) {
+      console.error('Failed to notify error to Slack:', notifyErr);
+    }
+  }
+}
+
+async function _handleEmojiIssue(
+  event: SlackReactionEvent,
+  env: Env,
+  slackClient: SlackClient,
+  channel: string,
+  messageTs: string,
+  reactorUserId: string
+): Promise<void> {
   const tokenResult = await getValidAccessToken(
     env.LINEAR_TOKENS,
     env.LINEAR_CLIENT_ID,
@@ -40,7 +65,12 @@ export async function handleEmojiIssue(
 
   const messageResult = await slackClient.getConversationReplies(channel, messageTs);
   if (!messageResult.ok || !messageResult.messages?.[0]) {
-    console.log('Could not get message info');
+    console.error('Could not get message info:', messageResult.error || 'no messages');
+    await slackClient.postMessage(
+      channel,
+      `:warning: 메시지를 조회할 수 없습니다 (${messageResult.error || 'no messages'}). 봇이 이 채널에 초대되어 있는지 확인해주세요.`,
+      messageTs
+    );
     return;
   }
 
@@ -56,6 +86,11 @@ export async function handleEmojiIssue(
   // 텍스트도 이미지도 없으면 종료
   if (messages.length === 0 && collectedImages.length === 0) {
     console.log('No messages or images to analyze');
+    await slackClient.postMessage(
+      channel,
+      ':warning: 분석할 메시지나 이미지가 없습니다.',
+      messageTs
+    );
     return;
   }
 
@@ -203,7 +238,7 @@ export async function handleEmojiIssue(
     stateId,
     assigneeId,
     priority: finalResult.suggestedPriority || 3,
-    projectId: finalResult.suggestedProjectId,
+    // 프로젝트는 자동 할당하지 않음 (AI 추천 정확도 문제) — 팀 결정에만 사용하고 Slack 답글에 참고용으로 표시
     estimate: finalResult.suggestedEstimate,
     createAsUser: oauthToken ? reactorName : undefined,
     displayIconUrl: oauthToken ? reactorAvatar : undefined,
@@ -236,12 +271,12 @@ export async function handleEmojiIssue(
     await linearClient.linkSlackThread(issueResult.issueId, permalink, true);
   }
 
-  // matchedProject는 위에서 이미 할당됨
-  const projectLine = matchedProject ? `\n프로젝트: ${matchedProject.name}` : '';
+  // 프로젝트는 자동 할당하지 않고 AI 추천을 참고용으로만 표시
+  const projectLine = matchedProject ? `\n추천 프로젝트: ${matchedProject.name} (참고용 — 직접 설정해주세요)` : '';
   const estimateLine = finalResult.suggestedEstimate ? ` · ${finalResult.suggestedEstimate}pt` : '';
   const imageLine = collectedImages.length > 0 ? ` · 이미지 ${collectedImages.length}장` : '';
 
-  const replyText = `Linear 이슈가 생성되었습니다! 프로젝트/Cycle을 정확히 수정해주세요
+  const replyText = `Linear 이슈가 생성되었습니다! 프로젝트/Cycle을 설정해주세요
 <${issueResult.issueUrl}|${issueResult.issueIdentifier}> ${finalResult.title}${estimateLine}${imageLine}${projectLine}`;
 
   await slackClient.postMessage(channel, replyText, threadTs || messageTs);
